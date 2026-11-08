@@ -43,6 +43,12 @@ export function MetricsBar({
           {mm(s.warp.meanGroupWidthMm)} / {mm(s.weft.meanGroupWidthMm)} <small>mm</small>
         </b>
       </div>
+      <div className="metric" title="Mamuldeki en büyük / en küçük komşu aralığı (1 = düzgün); iplikler değmese de gruplaşmayı gösterir">
+        <span>Gruplaşma oranı ç / a</span>
+        <b>
+          {s.warp.groupingRatio.toFixed(2)} / {s.weft.groupingRatio.toFixed(2)}
+        </b>
+      </div>
       <div className="metric">
         <span>Örtme</span>
         <b>%{m.cover.toFixed(0)}</b>

@@ -13,7 +13,9 @@
     "samples:phys": "tsx scripts/render-phys-samples.ts",
     "calibrate": "tsx scripts/calibrate.ts",
     "samples:shrink": "tsx scripts/render-shrink-samples.ts",
-    "samples:reed": "tsx scripts/render-reed-samples.ts"
+    "samples:reed": "tsx scripts/render-reed-samples.ts",
+    "diagnose:weft": "tsx scripts/diagnose-weft.ts",
+    "samples:weft": "tsx scripts/render-weft-samples.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

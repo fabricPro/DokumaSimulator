@@ -18,7 +18,8 @@
  * İplik boyunca konum sabittir (yanal bükülme kapsam dışı).
  */
 import type { FabricSpec } from '../types';
-import { crossWeightedGap, warpGapBinding, weftGapBinding } from './interlacing';
+import { crossWeightedGap, transposeWeave, warpGapBinding } from './interlacing';
+import { WeftReportPositionGenerator } from '../weft/weftReport';
 import {
   PeriodicPositionGenerator,
   UniformPositionGenerator,
@@ -141,38 +142,53 @@ export interface FabricPositions {
   reed?: ReedPositionGenerator;
   /** Tarak varsa türetilen tezgah çözgü sıklığı. */
   reedDensity?: number;
+  /** Atkı sıklık raporu varsa ortalama tezgah atkı sıklığı. */
+  weftLoomDensity?: number;
   reedOverfullDents: number;
   warnings: string[];
 }
 
-function axisPositions(
-  spec: FabricSpec,
-  axis: 'warp' | 'weft',
-  loomGen: PositionGenerator,
-  loomPeriod: number,
-  shrinkPct: number,
-): AxisPositions {
-  const M = spec.weave;
-  const relax = { ...DEFAULT_RELAX, ...(spec.relax ?? {}) };
-  const own = axis === 'warp' ? spec.warpSlots : spec.weftSlots;
-  const ownSeq = axis === 'warp' ? spec.warpSequence : spec.weftSequence;
-  const cross = axis === 'warp' ? spec.weftSlots : spec.warpSlots;
-  const crossSeq = axis === 'warp' ? spec.weftSequence : spec.warpSequence;
+/**
+ * Tek yönlü çekme dağılımı girdisi — her zaman ÇÖZGÜ yönelimli verilir:
+ * çözgü için örgü M, atkı için transpozu Mᵀ; "own" bu yöndeki iplikler, "cross" karşı yöndekiler.
+ * Böylece çözgü ve atkı aynı kodu çalıştırır; atkı tarafı çözgünün transpoz girdisidir.
+ */
+export interface AxisInput {
+  /** Çözgü yönelimli örgü: satır = karşı iplik, sütun = bu yöndeki iplik. */
+  weave: boolean[][];
+  ownSlots: FabricSpec['warpSlots'];
+  ownSequence: number[];
+  crossSlots: FabricSpec['warpSlots'];
+  crossSequence: number[];
+  loom: PositionGenerator;
+  loomPeriod: number;
+  /** Bu yöndeki konumları daraltan çekme (%): çözgü konumları için atkı çekmesi, atkılar için çözgü çekmesi. */
+  shrinkPct: number;
+  c: number;
+  rho: number;
+}
+
+export function distributeAxis(input: AxisInput): AxisPositions {
+  const M = input.weave;
+  const own = input.ownSlots;
+  const ownSeq = input.ownSequence;
+  const cross = input.crossSlots;
+  const crossSeq = input.crossSequence;
   const ownT = slotTable(own);
   const crossT = slotTable(cross);
-  const repeat = axis === 'warp' ? M[0].length : M.length;
-  const crossRepeat = axis === 'warp' ? M.length : M[0].length;
+  const repeat = M[0].length; // bu yöndeki rapor
+  const crossRepeat = M.length;
 
-  let P = lcm(lcm(repeat, Math.max(1, ownSeq.length)), loomPeriod);
+  let P = lcm(lcm(repeat, Math.max(1, ownSeq.length)), input.loomPeriod);
   if (P > MAX_PERIOD) P = Math.max(repeat, Math.min(MAX_PERIOD, P));
   const crossPeriod = Math.min(lcm(crossRepeat, Math.max(1, crossSeq.length)), MAX_PERIOD);
   const crossD = (j: number) => crossT.diameter[slotOf(crossSeq, j, cross.length)];
 
-  const binding = axis === 'warp' ? warpGapBinding(M) : weftGapBinding(M);
+  const binding = warpGapBinding(M);
   const crossTermByCol = new Float64Array(repeat);
-  for (let k = 0; k < repeat; k++) crossTermByCol[k] = crossWeightedGap(M, axis, k, crossD, crossPeriod);
+  for (let k = 0; k < repeat; k++) crossTermByCol[k] = crossWeightedGap(M, 'warp', k, crossD, crossPeriod);
 
-  const centers = loomGen.centers(0, P + 1);
+  const centers = input.loom.centers(0, P + 1);
   const radii = new Float64Array(P + 1);
   for (let g = 0; g <= P; g++) radii[g] = ownT.diameter[slotOf(ownSeq, g, own.length)] / 2;
   const loomGaps = new Float64Array(P);
@@ -184,14 +200,14 @@ function axisPositions(
     loomGaps[k] = centers[k + 1] - centers[k];
     const col = k % repeat;
     w[k] = binding[col];
-    minGaps[k] = relax.c * (radii[k] + radii[k + 1]) + crossTermByCol[col];
-    stiffness[k] = 1 + (relax.rho - 1) * w[k];
+    minGaps[k] = input.c * (radii[k] + radii[k + 1]) + crossTermByCol[col];
+    stiffness[k] = 1 + (input.rho - 1) * w[k];
     if (loomGaps[k] < MIN_SQUEEZE * (radii[k] + radii[k + 1])) loomJammed = true;
   }
-  const shrink = shrinkPct / 100;
+  const shrink = input.shrinkPct / 100;
   const res = distributeShrink({ loomGaps, minGaps, stiffness, shrink });
   const identity = shrink === 0;
-  let finished: PositionGenerator = loomGen;
+  let finished: PositionGenerator = input.loom;
   if (!identity) {
     // Mamul tablo: 0. iplik tezgah konumunun ölçeklenmiş hali, sonra aralıklar birikimli
     const offsets = new Float64Array(P);
@@ -200,7 +216,7 @@ function axisPositions(
     finished = new PeriodicPositionGenerator(offsets, res.width);
   }
   return {
-    loom: loomGen,
+    loom: input.loom,
     finished,
     period: P,
     binding: w,
@@ -240,11 +256,44 @@ export function buildFabricPositions(spec: FabricSpec): FabricPositions {
       );
     }
   }
-  const weftLoom = new UniformPositionGenerator(spec.weftDensityLoom);
+  // Atkı tezgah konumları: atkı sıklık raporu varsa ondan, yoksa eşit adım
+  let weftLoom: PositionGenerator = new UniformPositionGenerator(spec.weftDensityLoom);
+  let weftLoomDensity: number | undefined;
+  let weftLoomPeriod = 1;
+  if (spec.weftDensityReport && spec.weftDensityReport.length > 0) {
+    const wr = new WeftReportPositionGenerator(spec.weftDensityLoom, spec.weftDensityReport);
+    weftLoom = wr;
+    weftLoomPeriod = wr.period;
+    weftLoomDensity = wr.period / (wr.periodWidth / 10);
+  }
+  const relax = { ...DEFAULT_RELAX, ...(spec.relax ?? {}) };
   // Çözgü konumlarını en daraltan atkı çekmesi, atkı konumlarını boy kısaltan çözgü çekmesidir.
-  const warp = axisPositions(spec, 'warp', warpLoom, warpLoomPeriod, spec.weftShrinkPct);
-  const weft = axisPositions(spec, 'weft', weftLoom, 1, spec.warpShrinkPct);
-  return { warp, weft, reed, reedDensity, reedOverfullDents: overfull, warnings };
+  // Aynı fonksiyon: atkı tarafı örgünün transpozu ve yer değiştirmiş slotlarla çalışır.
+  const warp = distributeAxis({
+    weave: spec.weave,
+    ownSlots: spec.warpSlots,
+    ownSequence: spec.warpSequence,
+    crossSlots: spec.weftSlots,
+    crossSequence: spec.weftSequence,
+    loom: warpLoom,
+    loomPeriod: warpLoomPeriod,
+    shrinkPct: spec.weftShrinkPct,
+    c: relax.c,
+    rho: relax.rho,
+  });
+  const weft = distributeAxis({
+    weave: transposeWeave(spec.weave),
+    ownSlots: spec.weftSlots,
+    ownSequence: spec.weftSequence,
+    crossSlots: spec.warpSlots,
+    crossSequence: spec.warpSequence,
+    loom: weftLoom,
+    loomPeriod: weftLoomPeriod,
+    shrinkPct: spec.warpShrinkPct,
+    c: relax.c,
+    rho: spec.relax?.rhoWeft ?? relax.rho,
+  });
+  return { warp, weft, reed, reedDensity, weftLoomDensity, reedOverfullDents: overfull, warnings };
 }
 
 /**

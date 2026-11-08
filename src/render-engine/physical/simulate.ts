@@ -119,7 +119,7 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
   const fabric = opts.warpPositions && opts.weftPositions ? null : (opts.positions ?? buildFabricPositions(spec));
   const { warp: Dw, weft: Df } = finishedDensities(
     fabric?.reedDensity ?? spec.warpDensityLoom,
-    spec.weftDensityLoom,
+    fabric?.weftLoomDensity ?? spec.weftDensityLoom,
     spec.warpShrinkPct,
     spec.weftShrinkPct,
   );

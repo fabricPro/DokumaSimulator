@@ -15,6 +15,8 @@ npm run build          # tsc + vite build
 npm run samples:phys   # v2: referans örneğini 3 çekme durumunda samples/ts/ altına render eder
 npm run samples:shrink # çekme dağılımı örnekleri → samples/shrink/
 npm run samples:reed   # tarak örnekleri (tarak şeridi + Tezgah | Mamul) → samples/reed/
+npm run samples:weft   # atkı yönü örnekleri (kullanıcı 6×6, yalancı lino) → samples/weft/
+npm run diagnose:weft  # atkı gruplaşması teşhisi (w, m, aralıklar, render kanıtı)
 npm run samples        # v1: 5 örgü, samples/ts/out_*.png
 npm run calibrate      # calibration/samples/*.json için sapma tablosu + parametre önerisi
 ```
@@ -141,6 +143,51 @@ ReedSpec {
 `npm run samples:reed` dört kombinasyonu üretir, hepsi 12 tel/cm ve 300 den ile, %0 / %8 / %15 çekmede:
 bezayağı + 2'li düz, panama + 2'li düz, yalancı lino + 3-0-0, yalancı lino + 1'li düz.
 Tezgahta her çözgü merkezinin kendi diş açıklığında olduğu script içinde de kontrol edilir.
+
+## Atkı gruplaşması teşhisi
+
+**Şikâyet:** çözgü çekmesi verildiğinde mamulde atkılar yalnız eşit aralıkla sıklaşıyor gibi görünüyordu.
+`npm run diagnose:weft` ile (12/12 tel/cm, çözgü çekmesi %30) kontrol edildi:
+
+| Kontrol | Sonuç |
+| --- | --- |
+| (a) Atkı yönünde yay modeli çağrılıyor mu? | **Evet.** Atkı aralıkları değişiyor: panama 0.389 / 0.778 mm, yalancı lino 0.523 / 0.704 mm. |
+| (b) w_atkı doğru eksenden mi? | **Evet.** w_j = (j ve j+1 atkılarının farklı olduğu çözgü sayısı) / (rapordaki çözgü sayısı). |
+| (c) m_j hangi çapla? | **Doğru.** c·(r_j + r_j+1) + w_j·d_çözgü; karşı yön çözgü çapları (ör. panama 0.414 − 0.190 = 0.224 mm = d_çözgü). |
+| (d) Render ve metriklere aktarılıyor mu? | **Evet.** Render'dan ölçülen atkı merkezleri yay modeliyle ≤ 1.2 px. |
+
+**Asıl sebep örgünün kendisi.** Kullanıcının 6×6 örgüsünde w_atkı = w_çözgü = [⅔, ⅔, 1, ⅔, ⅔, 1].
+
+- "Toplanan" aralıklar (⅔) ile "ayrık kalan" aralıklar (1) arasındaki fark küçük, sertlik oranı yalnız 1.4.
+- Bu yüzden çekme atkıları neredeyse eşit sıklaştırır: gruplaşma oranı %30 çekmede 1.15.
+- Çözgü yönündeki güçlü gruplaşma (oran 5.27) çekmeden değil, **3-0 taraklamadan** gelir. Atkı yönünde tarak
+  olmadığı için bu fark asimetri gibi görünüyordu.
+- Atkıda benzer etki istenirse **atkı sıklık raporu** (ör. "1-1-3") kullanılır.
+
+**İki yanıltıcı gösterge:**
+- "Grup genişliği" yalnız birbirine değen iplikleri grup sayar; değmeyen gruplaşmayı göstermiyordu. Bunun için
+  **gruplaşma oranı** (en büyük / en küçük mamul aralığı, ç/a ayrı) eklendi.
+- "17.1 atkı/cm" ortalama sıklıktır, tanım gereği eşit bölmedir; gruplaşmayı göstermez.
+
+**Yapılan düzeltmeler:**
+- Çözgü ve atkı artık tek fonksiyonla (`distributeAxis`) hesaplanıyor; atkı tarafı örgünün transpozunu alıyor.
+- Simetri testi: Mᵀ ve yer değiştirmiş parametrelerle çözgü ↔ atkı konumları 1e-6 mm içinde eşit. Bezayağı,
+  3/1 dimi, panama, yalancı lino, kullanıcı 6×6 ve karışık kalın/ince atkı varyantı × 4 çekme durumu ile sınandı.
+
+### Atkı sıklık raporu
+
+`weftDensityReport`: atkı başına tezgah adım çarpanı, taraklama raporuyla aynı sözdizimi ("1-1-1-3", "1x3, 2").
+
+- "1-1-1-3" → 3 atkı normal adımda, 4. atkıdan sonra 3 adımlık aralık.
+- Ortalama tezgah atkı sıklığı = sıklık × rapor uzunluğu / Σ çarpan.
+- Boşsa eşit adım kullanılır. 0 adım geçersizdir.
+- Rapor tekrar kartı atkı yönünü de gösterir: örgü, renk/iplik ve sıklık raporu, EKOK.
+
+### Görünüm
+
+- "Aynı iplikler" modunda mamul görüntü dikeyde ortalanır; köşede "boy %X kısaldı, en %Y daraldı" etiketi gösterilir.
+- "Tezgah → mamul çizgileri (atkı)" seçeneği sol bantta her atkının tezgah ve mamul konumunu birleştirir.
+- Bağlantı şeritleri iki kenarda da w'yi gösterir (0 yeşil → 1 kırmızı).
 
 ## Referansla doğrulama
 

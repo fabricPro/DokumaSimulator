@@ -2,7 +2,7 @@
  * FabricSpec JSON içe/dışa aktarma. v2 (slotlu) doğrudan okunur; v1 (renk dizili) JSON'lar
  * geriye uyumlu olarak v2'ye çevrilir.
  */
-import { MAX_SLOTS, SLOT_NAMES, normalizeReedSpec, normalizeSystem, parseDenting, type FabricSpec, type YarnSlot, type YarnSystem } from '../render-engine';
+import { MAX_SLOTS, SLOT_NAMES, normalizeReedSpec, normalizeSystem, parseDenting, parseWeftReport, type FabricSpec, type YarnSlot, type YarnSystem } from '../render-engine';
 import { colorsToSlots } from './slots';
 
 export interface ParsedFabric {
@@ -87,9 +87,25 @@ export function validateSpecV2(raw: any): FabricSpec {
     warpCrimpShare: share,
     ...checkReed(raw.reed),
     ...(raw.relax && typeof raw.relax === 'object'
-      ? { relax: { ...(raw.relax.c > 0 ? { c: raw.relax.c } : {}), ...(raw.relax.rho >= 1 ? { rho: raw.relax.rho } : {}) } }
+      ? {
+          relax: {
+            ...(raw.relax.c > 0 ? { c: raw.relax.c } : {}),
+            ...(raw.relax.rho >= 1 ? { rho: raw.relax.rho } : {}),
+            ...(raw.relax.rhoWeft >= 1 ? { rhoWeft: raw.relax.rhoWeft } : {}),
+          },
+        }
       : {}),
+    ...checkWeftReport(raw.weftDensityReport),
   };
+}
+
+/** Atkı sıklık raporu: yoksa eşit adım. */
+function checkWeftReport(raw: unknown): { weftDensityReport?: number[] } {
+  if (raw === undefined || raw === null) return {};
+  if (!Array.isArray(raw) || raw.length === 0) throw new Error('weftDensityReport boş olmayan dizi olmalı.');
+  const r = parseWeftReport(raw.join('-'));
+  if (!r.ok) throw new Error('weftDensityReport geçersiz: ' + r.error);
+  return { weftDensityReport: r.report };
 }
 
 /** Tarak alanı: yoksa tarak yok; eski { densityPerCm, denting } biçimi yeniye çevrilir. */

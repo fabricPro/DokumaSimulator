@@ -55,8 +55,11 @@ export interface FabricSpec {
   warpCrimpShare: number;
   /** Tarak (opsiyonel). Verilirse tezgah çözgü konumları ve sıklığı taraktan türetilir. */
   reed?: ReedSpec;
-  /** Çekme yay modeli: c = racetrack sıkışma katsayısı (0.85), rho = bağlantılı/bağlantısız sertlik oranı (8). */
-  relax?: { c?: number; rho?: number };
+  /** Çekme yay modeli: c = racetrack sıkışma katsayısı (0.85), rho = bağlantılı/bağlantısız sertlik oranı (8).
+   *  rhoWeft: atkı yönü için ayrı oran (altyapı; verilmezse rho). */
+  relax?: { c?: number; rho?: number; rhoWeft?: number };
+  /** Atkı sıklık raporu: atkı başına tezgah adım çarpanı (ör. [1,1,1,3]); boşsa eşit adım. */
+  weftDensityReport?: number[];
 }
 
 /** v1 FabricSpec (eski JSON'lar; yalnız geriye uyumlu okuma için). */

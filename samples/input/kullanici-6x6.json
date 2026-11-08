@@ -1,0 +1,107 @@
+{
+  "version": 2,
+  "weave": [
+    [
+      true,
+      false,
+      true,
+      false,
+      true,
+      false
+    ],
+    [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ],
+    [
+      true,
+      false,
+      true,
+      false,
+      true,
+      false
+    ],
+    [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true
+    ],
+    [
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true
+    ]
+  ],
+  "warpSlots": [
+    {
+      "name": "A",
+      "count": 70,
+      "system": "Denier",
+      "color": "#827d7d",
+      "twist": "S"
+    },
+    {
+      "name": "B",
+      "count": 6,
+      "system": "Nm",
+      "color": "#ffffff",
+      "twist": "S"
+    }
+  ],
+  "warpSequence": [
+    0,
+    1,
+    0
+  ],
+  "weftSlots": [
+    {
+      "name": "A",
+      "count": 70,
+      "system": "Denier",
+      "color": "#8f8f8f",
+      "twist": "S"
+    },
+    {
+      "name": "B",
+      "count": 6,
+      "system": "Nm",
+      "color": "#ffffff",
+      "twist": "S"
+    }
+  ],
+  "weftSequence": [
+    0,
+    1
+  ],
+  "warpDensityLoom": 22,
+  "weftDensityLoom": 12,
+  "warpShrinkPct": 30,
+  "weftShrinkPct": 0,
+  "warpCrimpShare": 0.4,
+  "reed": {
+    "reedNumber": 8,
+    "reedUnit": "diş/cm",
+    "dentingReport": [
+      3,
+      0
+    ]
+  }
+}

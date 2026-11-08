@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AxisPositions, FabricSpec } from '../render-engine';
+import type { AxisPositions, FabricSpec, PositionGenerator } from '../render-engine';
 import { DENT_BAND, LINK_BAND, drawReedStrip, type ReedStripInfo } from './reedStrip';
 export type { ReedStripInfo } from './reedStrip';
 import type { PhysicalInfo } from '../render-engine/worker';
@@ -27,6 +27,16 @@ export interface BindingStrips {
   which: 'loom' | 'finished';
 }
 
+/** Atkı için tezgah → mamul bağlantı çizgileri (panelin sol bandında). */
+export interface WeftLinks {
+  loom: PositionGenerator;
+  finished: PositionGenerator;
+  /** Tezgah koordinatının ekrandaki alt başlangıcı (mm). */
+  loomOriginY: number;
+}
+
+const WEFT_LINK_BAND = 26;
+
 interface Props {
   spec: FabricSpec;
   seed: number;
@@ -35,6 +45,9 @@ interface Props {
   renderWindow?: MmWindow;
   strips?: BindingStrips;
   reedStrip?: ReedStripInfo;
+  weftLinks?: WeftLinks;
+  /** Köşe etiketi, ör. "boy %30 kısaldı, en %10 daraldı". */
+  shrinkLabel?: string;
   title?: string;
   onViewChange: (v: MmView) => void;
   onInfo?: (info: PhysicalInfo) => void;
@@ -63,7 +76,20 @@ function bindingColor(w: number): string {
 }
 
 /** Tek bir kumaş paneli: 0.5x önizleme → tam render, tekerlek zoom, sürükle-kaydır (mm). */
-export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, title, onViewChange, onInfo, onSize }: Props) {
+export function FabricPane({
+  spec,
+  seed,
+  view,
+  renderWindow,
+  strips,
+  reedStrip,
+  weftLinks,
+  shrinkLabel,
+  title,
+  onViewChange,
+  onInfo,
+  onSize,
+}: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 400, h: 400 });
@@ -82,6 +108,13 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
   const bandH = reedStrip ? DENT_BAND + (reedStrip.finished ? LINK_BAND : 0) : 0;
   const bandRef = useRef(bandH);
   bandRef.current = bandH;
+  const leftW = weftLinks ? WEFT_LINK_BAND : 0;
+  const leftRef = useRef(leftW);
+  leftRef.current = leftW;
+  const weftLinksRef = useRef(weftLinks);
+  weftLinksRef.current = weftLinks;
+  const labelRef = useRef(shrinkLabel);
+  labelRef.current = shrinkLabel;
 
   const [clients, setClients] = useState<{ preview: RenderClient; full: RenderClient } | null>(null);
   useEffect(() => {
@@ -114,15 +147,19 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
     ctx.fillStyle = '#090a0d';
     ctx.fillRect(0, 0, w, hTotal);
     const band = bandRef.current;
+    const left = leftRef.current;
     const h = hTotal - band;
     const v = viewRef.current;
     const win = windowRef.current;
     const s = shownRef.current;
-    // Ekran ↔ kumaş eşlemesi: pencere modunda pencerenin sol altı ekranın sol altına oturur
+    // Ekran ↔ kumaş eşlemesi. Pencere modunda ("Aynı iplikler") mamul görüntü dikeyde ortalanır:
+    // tezgahla aynı iplikler daha kısa bir alana sığdığı için boşluk üstte ve altta eşit kalır.
     const ox = win ? win.x0Mm : v.x0Mm;
     const oy = win ? win.y0Mm : v.y0Mm;
-    const sx = (X: number) => (X - ox) * v.pxPerMm;
-    const sy = (Y: number) => band + h - (Y - oy) * v.pxPerMm;
+    const winH = win ? Math.min(win.heightMm * v.pxPerMm, h) : h;
+    const bottom = band + (win ? (h + winH) / 2 : h);
+    const sx = (X: number) => left + (X - ox) * v.pxPerMm;
+    const sy = (Y: number) => bottom - (Y - oy) * v.pxPerMm;
     if (s) {
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(s.canvas, sx(s.x0), sy(s.y0 + s.hMm), s.wMm * v.pxPerMm, s.hMm * v.pxPerMm);
@@ -147,7 +184,7 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
           } else {
             const a = sy(c[k + 1]);
             const b = sy(c[k]);
-            ctx.fillRect(0, a, STRIP_PX, b - a - 1);
+            ctx.fillRect(left, a, STRIP_PX, b - a - 1);
           }
         }
       };
@@ -156,7 +193,46 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
     }
     // Tarak şeridi (aynı px/mm, aynı x eşlemesi)
     const rs = reedRef.current;
-    if (rs) drawReedStrip(ctx, rs, w, v.pxPerMm, rs.loomOriginX ?? ox, ox);
+    if (rs) {
+      ctx.save();
+      ctx.translate(left, 0);
+      ctx.beginPath();
+      ctx.rect(0, 0, w - left, band);
+      ctx.clip();
+      drawReedStrip(ctx, rs, w - left, v.pxPerMm, rs.loomOriginX ?? ox, ox);
+      ctx.restore();
+    }
+    // Atkı: tezgah y → mamul y bağlantı çizgileri (sol bant)
+    const wl = weftLinksRef.current;
+    if (wl) {
+      ctx.fillStyle = '#d6dade';
+      ctx.fillRect(0, band, left, h);
+      const loomY = (Y: number) => band + h - (Y - wl.loomOriginY) * v.pxPerMm;
+      const r = wl.loom.indexRange(wl.loomOriginY, wl.loomOriginY + h / v.pxPerMm);
+      const lc = wl.loom.centers(r.first, r.count);
+      const fc = wl.finished.centers(r.first, r.count);
+      ctx.strokeStyle = 'rgba(35,39,45,0.75)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let k = 0; k < r.count; k++) {
+        const y0 = loomY(lc[k]);
+        const y1 = sy(fc[k]);
+        if (y0 < band || y0 > band + h) continue;
+        ctx.moveTo(0, y0);
+        ctx.lineTo(left, y1);
+      }
+      ctx.stroke();
+    }
+    // Çekme etiketi (sağ üst)
+    const lab = labelRef.current;
+    if (lab) {
+      ctx.font = '12px system-ui, sans-serif';
+      const tw = ctx.measureText(lab).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(w - tw - 18, band + 8, tw + 12, 20);
+      ctx.fillStyle = '#ffd666';
+      ctx.fillText(lab, w - tw - 12, band + 22);
+    }
     // 1 mm ölçek çubuğu
     ctx.fillStyle = 'rgba(240,240,240,0.95)';
     ctx.fillRect(12, hTotal - 30, v.pxPerMm, 6);
@@ -173,7 +249,7 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
 
   useEffect(() => {
     paint();
-  }, [strips, reedStrip, paint]);
+  }, [strips, reedStrip, weftLinks, shrinkLabel, paint]);
 
   const winKey = renderWindow
     ? `${renderWindow.x0Mm}|${renderWindow.y0Mm}|${renderWindow.widthMm}|${renderWindow.heightMm}`
@@ -187,7 +263,8 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
     const rx0 = win ? win.x0Mm : v.x0Mm;
     const ry0 = win ? win.y0Mm : v.y0Mm;
     const fabricH = Math.max(10, size.h - bandH);
-    const wMm = win ? Math.min(win.widthMm, size.w / v.pxPerMm) : size.w / v.pxPerMm;
+    const fabricW = Math.max(10, size.w - leftW);
+    const wMm = win ? Math.min(win.widthMm, fabricW / v.pxPerMm) : fabricW / v.pxPerMm;
     const hMm = win ? Math.min(win.heightMm, fabricH / v.pxPerMm) : fabricH / v.pxPerMm;
     let cancelled = false;
     let gotFull = false;
@@ -230,7 +307,7 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
     };
     // winKey pencere içeriğini temsil eder
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spec, seed, view, size, clients, paint, onInfo, winKey, bandH]);
+  }, [spec, seed, view, size, clients, paint, onInfo, winKey, bandH, leftW]);
 
   // Tekerlek: imleç altındaki mm noktası sabit kalacak şekilde zoom (tezgah koordinatında)
   useEffect(() => {
@@ -240,7 +317,7 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
       const v = viewRef.current;
       const h = sizeRef.current.h - bandRef.current;
       const rect = c.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
+      const mx = e.clientX - rect.left - leftRef.current;
       const my = e.clientY - rect.top - bandRef.current;
       const ppm = Math.max(MIN_PPM, Math.min(MAX_PPM, v.pxPerMm * Math.exp(-e.deltaY * 0.0015)));
       const X = v.x0Mm + mx / v.pxPerMm;
@@ -270,7 +347,7 @@ export function FabricPane({ spec, seed, view, renderWindow, strips, reedStrip, 
         onPointerCancel={() => (drag.current = null)}
       />
       {title && (
-        <div className="pane-title" style={{ top: bandH + 8 }}>
+        <div className="pane-title" style={{ top: bandH + 8, left: leftW + 8 }}>
           {title}
         </div>
       )}

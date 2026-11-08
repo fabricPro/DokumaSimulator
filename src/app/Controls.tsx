@@ -1,11 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { ReedPanel } from './ReedPanel';
+import { WeftReportField } from './WeftReportField';
 import {
   DEFAULT_RELAX,
   MAX_SLOTS,
   SLOT_NAMES,
   diameterMm,
   effectiveLoomWarpDensity,
+  effectiveLoomWeftDensity,
   finishedDensities,
   toTex,
   type FabricSpec,
@@ -293,7 +295,7 @@ export function YarnPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: 
 export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: FabricSpec) => void }) {
   const set = <K extends keyof FabricSpec>(k: K, v: FabricSpec[K]) => onChange({ ...spec, [k]: v });
   const loomWarp = effectiveLoomWarpDensity(spec);
-  const fin = finishedDensities(loomWarp, spec.weftDensityLoom, spec.warpShrinkPct, spec.weftShrinkPct);
+  const fin = finishedDensities(loomWarp, effectiveLoomWeftDensity(spec), spec.warpShrinkPct, spec.weftShrinkPct);
   const relax = { ...DEFAULT_RELAX, ...(spec.relax ?? {}) };
   const [adv, setAdv] = useState(false);
   return (
@@ -314,6 +316,7 @@ export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s
         <NumberField label="Tezgah atkı sıklığı" suffix="atkı/cm" value={spec.weftDensityLoom} step={0.5} min={1} onChange={(v) => set('weftDensityLoom', v)} />
       </div>
       <ReedPanel spec={spec} onChange={onChange} />
+      <WeftReportField spec={spec} onChange={onChange} />
       <Slider label="Çözgü çekmesi (boy)" value={spec.warpShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('warpShrinkPct', v)} format={(v) => `%${v}`} />
       <Slider label="Atkı çekmesi (en)" value={spec.weftShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('weftShrinkPct', v)} format={(v) => `%${v}`} />
       <Slider label="Kıvrım payı (çözgü)" value={spec.warpCrimpShare} min={0} max={1} step={0.01} onChange={(v) => set('warpCrimpShare', v)} format={(v) => v.toFixed(2)} />

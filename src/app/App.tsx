@@ -48,6 +48,7 @@ export function App() {
   const [compareKind, setCompareKind] = useState<'sameYarns' | 'sameArea'>('sameYarns');
   const [showStrips, setShowStrips] = useState(false);
   const [showLinks, setShowLinks] = useState(true);
+  const [showWeftLinks, setShowWeftLinks] = useState(false);
   const [view, setView] = useState<MmView>({ x0Mm: 0, y0Mm: 0, pxPerMm: 60 });
   const [paneSize, setPaneSize] = useState({ w: 0, h: 0 });
   const [info, setInfo] = useState<PhysicalInfo | null>(null);
@@ -139,8 +140,47 @@ export function App() {
     if (reedEnds > 0) all = lcm(all, reedEnds);
     const loomPitch = positions ? positions.warp.loom.meanPitchMm() : 10 / spec.warpDensityLoom;
     const finPitch = positions ? positions.warp.finished.meanPitchMm() : loomPitch;
-    return { weave, seq, reedEnds, reedDents, all, loomMm: all * loomPitch, finMm: all * finPitch };
+    // Atkı yönü
+    const weaveF = spec.weave.length;
+    const seqF = Math.max(1, spec.weftSequence.length);
+    const reportF = spec.weftDensityReport?.length ?? 0;
+    let allF = lcm(weaveF, seqF);
+    if (reportF > 0) allF = lcm(allF, reportF);
+    const loomPitchF = positions ? positions.weft.loom.meanPitchMm() : 10 / spec.weftDensityLoom;
+    const finPitchF = positions ? positions.weft.finished.meanPitchMm() : loomPitchF;
+    return {
+      weave,
+      seq,
+      reedEnds,
+      reedDents,
+      all,
+      loomMm: all * loomPitch,
+      finMm: all * finPitch,
+      weaveF,
+      seqF,
+      reportF,
+      allF,
+      loomMmF: allF * loomPitchF,
+      finMmF: allF * finPitchF,
+    };
   }, [spec, positions]);
+
+  // Atkı bağlantı çizgileri ve çekme etiketi (karşılaştırmada mamul paneli)
+  const weftLinks = useMemo(
+    () =>
+      showWeftLinks && positions
+        ? { loom: positions.weft.loom, finished: positions.weft.finished, loomOriginY: view.y0Mm }
+        : undefined,
+    [showWeftLinks, positions, view.y0Mm],
+  );
+  const shrinkLabel = useMemo(() => {
+    if (!finishedWindow || paneSize.w === 0) return undefined;
+    const loomW = paneSize.w / view.pxPerMm;
+    const loomH = paneSize.h / view.pxPerMm;
+    const boy = 100 * (1 - finishedWindow.heightMm / loomH);
+    const en = 100 * (1 - finishedWindow.widthMm / loomW);
+    return `boy %${boy.toFixed(1)} kısaldı, en %${en.toFixed(1)} daraldı`;
+  }, [finishedWindow, paneSize, view.pxPerMm]);
 
   const onImport = async (file: File) => {
     try {
@@ -290,6 +330,12 @@ export function App() {
             <input type="checkbox" checked={showStrips} onChange={(e) => setShowStrips(e.target.checked)} />
             Bağlantı şeritleri
           </label>
+          {mode === 'compare' && (
+            <label className="check">
+              <input type="checkbox" checked={showWeftLinks} onChange={(e) => setShowWeftLinks(e.target.checked)} />
+              Tezgah → mamul çizgileri (atkı)
+            </label>
+          )}
           {spec.reed && (
             <label className="check">
               <input type="checkbox" checked={showLinks} onChange={(e) => setShowLinks(e.target.checked)} />
@@ -316,8 +362,25 @@ export function App() {
             örgü <b>{repeats.weave} tel</b>
           </span>
           <span className="lcm">
-            ortak (EKOK) <b>{repeats.all} tel</b> = {repeats.loomMm.toFixed(2)} mm tezgahta · {repeats.finMm.toFixed(2)} mm mamulde — desen ancak bu uzunlukta tam tekrar eder
+            ortak (EKOK) <b>{repeats.all} tel</b> = {repeats.loomMm.toFixed(2)} mm tezgahta · {repeats.finMm.toFixed(2)} mm mamulde
           </span>
+          <span className="sep-line" />
+          <span>Atkı:</span>
+          <span>
+            örgü <b>{repeats.weaveF} atkı</b>
+          </span>
+          <span>
+            atkı renk/iplik <b>{repeats.seqF} atkı</b>
+          </span>
+          {repeats.reportF > 0 && (
+            <span>
+              atkı sıklık raporu <b>{repeats.reportF} atkı</b>
+            </span>
+          )}
+          <span className="lcm">
+            ortak (EKOK) <b>{repeats.allF} atkı</b> = {repeats.loomMmF.toFixed(2)} mm tezgahta · {repeats.finMmF.toFixed(2)} mm mamulde
+          </span>
+          <span className="muted">— desen ancak bu uzunluklarda tam tekrar eder</span>
         </div>
         <div className={`panes ${mode}`}>
           {mode === 'compare' && (
@@ -339,6 +402,8 @@ export function App() {
             renderWindow={finishedWindow}
             strips={showStrips && positions ? { warp: positions.warp, weft: positions.weft, which: 'finished' } : undefined}
             reedStrip={finishedStrip}
+            weftLinks={mode === 'compare' ? weftLinks : undefined}
+            shrinkLabel={shrinkLabel}
             onViewChange={setView}
             onInfo={setInfo}
             onSize={onSize}

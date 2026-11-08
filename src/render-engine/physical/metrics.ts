@@ -78,10 +78,17 @@ export function effectiveLoomWarpDensity(spec: FabricSpec, positions?: FabricPos
   return p?.reedDensity ?? spec.warpDensityLoom;
 }
 
+/** Atkı sıklık raporu varsa ortalama, yoksa girilen tezgah atkı sıklığı. */
+export function effectiveLoomWeftDensity(spec: FabricSpec): number {
+  const r = spec.weftDensityReport;
+  if (!r || r.length === 0) return spec.weftDensityLoom;
+  return (spec.weftDensityLoom * r.length) / r.reduce((a, b) => a + b, 0);
+}
+
 export function computeMetrics(spec: FabricSpec, opts: MetricsOptions = {}): FabricMetrics {
   const { warp: Dw, weft: Df } = finishedDensities(
     effectiveLoomWarpDensity(spec),
-    spec.weftDensityLoom,
+    effectiveLoomWeftDensity(spec),
     spec.warpShrinkPct,
     spec.weftShrinkPct,
   );
@@ -144,6 +151,8 @@ export interface AxisStructure {
   groups: number;
   /** Açık aralıkların toplam genişliğe oranı (0..1), izdüşüm. */
   openFraction: number;
+  /** Gruplaşma oranı: mamuldeki en büyük / en küçük komşu aralığı (1 = düzgün). Değme şartı aramaz. */
+  groupingRatio: number;
 }
 
 export interface StructureMetrics {
@@ -206,7 +215,19 @@ function axisStructure(ax: AxisPositions): AxisStructure {
     }
     meanGroup = total / groups;
   }
-  return { maxClearMm: maxClear, meanGroupWidthMm: meanGroup, groups, openFraction: width > 0 ? clearSum / width : 0 };
+  let gMax = 0;
+  let gMin = Infinity;
+  for (const g of ax.gaps) {
+    gMax = Math.max(gMax, g);
+    gMin = Math.min(gMin, g);
+  }
+  return {
+    maxClearMm: maxClear,
+    meanGroupWidthMm: meanGroup,
+    groups,
+    openFraction: width > 0 ? clearSum / width : 0,
+    groupingRatio: gMin > 0 ? gMax / gMin : 1,
+  };
 }
 
 export function structureMetrics(spec: FabricSpec, positions?: FabricPositions): StructureMetrics {
@@ -216,12 +237,12 @@ export function structureMetrics(spec: FabricSpec, positions?: FabricPositions):
   const warnings = [...pos.warnings];
   if (!pos.warp.feasible) {
     warnings.push(
-      `Atkı çekmesi %${spec.weftShrinkPct} bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %${pos.warp.maxShrinkPct.toFixed(1)}.`,
+      `Atkı çekmesi %${spec.weftShrinkPct} (en, çözgü aralıkları) bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %${pos.warp.maxShrinkPct.toFixed(1)}.`,
     );
   }
   if (!pos.weft.feasible) {
     warnings.push(
-      `Çözgü çekmesi %${spec.warpShrinkPct} bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %${pos.weft.maxShrinkPct.toFixed(1)}.`,
+      `Çözgü çekmesi %${spec.warpShrinkPct} (boy, atkı aralıkları) bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %${pos.weft.maxShrinkPct.toFixed(1)}.`,
     );
   }
   const share = spec.warpCrimpShare ?? 0.4;

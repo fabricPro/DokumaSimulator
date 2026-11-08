@@ -67,6 +67,19 @@ export function crossWeightedGap(
   return s / crossPeriod;
 }
 
+/** Örgünün transpozu: çözgü ↔ atkı (Mᵀ[i][j] = M[j][i]). warpGapBinding(Mᵀ) = weftGapBinding(M). */
+export function transposeWeave(M: boolean[][]): boolean[][] {
+  const rows = M.length;
+  const cols = M[0].length;
+  const out: boolean[][] = [];
+  for (let i = 0; i < cols; i++) {
+    const r: boolean[] = [];
+    for (let j = 0; j < rows; j++) r.push(M[j][i]);
+    out.push(r);
+  }
+  return out;
+}
+
 export function sum(a: ArrayLike<number>): number {
   let s = 0;
   for (let i = 0; i < a.length; i++) s += a[i];
