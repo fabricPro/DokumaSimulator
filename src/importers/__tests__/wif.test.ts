@@ -3,6 +3,8 @@ import { parseIni, parseWif } from '../wif';
 import { parseFabricJson, serializeFabricJson } from '../fabricJson';
 import { atkiJsonImporter } from '../atkiJson';
 import { plain, twill31 } from '../../presets/weaves';
+import { physicalExample } from '../../presets/physicalExample';
+import { colorsToSlots, minimalPeriod } from '../slots';
 
 const HEADER = `[WIF]
 Version=1.1
@@ -145,7 +147,8 @@ Color=2
 });
 
 describe('FabricSpec JSON', () => {
-  const spec = {
+  /** v1 (eski) biçim: tek renk dizisi, tek iplik. */
+  const v1 = {
     weave: plain(),
     warpColors: ['#111111'],
     weftColors: ['#eeeeee', '#cc0000'],
@@ -156,13 +159,52 @@ describe('FabricSpec JSON', () => {
     repeatX: 4,
     repeatY: 2,
   };
-  it('gidiş-dönüş korunur', () => {
-    expect(parseFabricJson(serializeFabricJson(spec))).toEqual(spec);
+
+  it('v2 gidiş-dönüş korunur', () => {
+    const spec = physicalExample(6, 10);
+    const r = parseFabricJson(serializeFabricJson(spec));
+    expect(r.migrated).toBe(false);
+    expect(r.spec).toEqual(spec);
   });
+
+  it('eski v1 JSON geriye uyumlu okunur: renkler → slot + sıra', () => {
+    const r = parseFabricJson(JSON.stringify(v1));
+    expect(r.migrated).toBe(true);
+    expect(r.spec.version).toBe(2);
+    expect(r.spec.weave).toEqual(plain());
+    expect(r.spec.warpSlots).toHaveLength(1);
+    expect(r.spec.warpSlots[0]).toMatchObject({ name: 'A', count: 30, system: 'Ne', color: '#111111' });
+    expect(r.spec.weftSlots.map((s) => s.color)).toEqual(['#eeeeee', '#cc0000']);
+    expect(r.spec.weftSlots[1]).toMatchObject({ count: 150, system: 'Denier' });
+    expect(r.spec.weftSequence).toEqual([0, 1]);
+    expect(r.spec.warpDensityLoom).toBe(30);
+    expect(r.spec.weftDensityLoom).toBe(25);
+    expect(r.spec.warpShrinkPct).toBe(0);
+    expect(r.spec.warpCrimpShare).toBe(0.4);
+    expect(r.warnings.join(' ')).toMatch(/fiberDensity/);
+  });
+
+  it('4\'ten fazla renk: en sık 4 slot, diğerleri en yakına birleşir', () => {
+    const colors = ['#ff0000', '#ff0000', '#ff0000', '#00ff00', '#00ff00', '#0000ff', '#0000ff', '#ffffff', '#fe0101'];
+    const r = colorsToSlots(colors, { count: 30, system: 'Ne' }, 'Çözgü');
+    expect(r.slots.map((s) => s.color)).toEqual(['#ff0000', '#00ff00', '#0000ff', '#ffffff']);
+    expect(r.sequence[8]).toBe(0); // #fe0101 → kırmızı (A)
+    expect(r.warnings[0]).toMatch(/#fe0101→A/);
+  });
+
+  it('dizi en kısa periyoduna indirgenir', () => {
+    expect(minimalPeriod([0, 1, 1, 0, 1, 1])).toEqual([0, 1, 1]);
+    expect(minimalPeriod([0, 1, 2])).toEqual([0, 1, 2]);
+  });
+
   it('geçersiz alanları reddeder', () => {
     expect(() => parseFabricJson('{')).toThrow(/JSON/);
-    expect(() => parseFabricJson(JSON.stringify({ ...spec, weave: [[true], [true, false]] }))).toThrow(/satırı 1/);
-    expect(() => parseFabricJson(JSON.stringify({ ...spec, warpYarn: { count: 1, system: 'tex' } }))).toThrow(/system/);
+    expect(() => parseFabricJson(JSON.stringify({ ...v1, weave: [[true], [true, false]] }))).toThrow(/satırı 1/);
+    expect(() => parseFabricJson(JSON.stringify({ ...v1, warpYarn: { count: 1, system: 'xyz' } }))).toThrow(/system/);
+    const bad = { ...physicalExample(), weftSequence: [0, 7] };
+    expect(() => parseFabricJson(JSON.stringify(bad))).toThrow(/weftSequence/);
+    const tooMany = { ...physicalExample(), warpSlots: [...physicalExample().weftSlots, physicalExample().weftSlots[0]] };
+    expect(() => parseFabricJson(JSON.stringify(tooMany))).toThrow(/1–4 slot/);
   });
 });
 

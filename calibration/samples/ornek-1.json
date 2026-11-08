@@ -1,0 +1,28 @@
+{
+  "name": "ÖRNEK-1 (referans armür, 4 atkı slotu)",
+  "example": true,
+  "note": "ÖRNEK KAYIT — ölçümler uydurmadır, yalnızca scriptin çalıştığını göstermek içindir. Gerçek numune verisiyle değiştirin.",
+  "weavePreset": "dobby",
+  "warpSlots": [
+    { "count": 300, "system": "Denier", "color": "#e8e6e1" },
+    { "count": 300, "system": "Denier", "color": "#3d434b" }
+  ],
+  "warpSequence": ["A", "B", "B", "A", "B", "B"],
+  "weftSlots": [
+    { "count": 600, "system": "Denier", "color": "#3d434b" },
+    { "count": 150, "system": "Denier", "color": "#3fc0d2" },
+    { "count": 8, "system": "Ne", "color": "#c9a24a", "yarnDensity": 0.7 },
+    { "count": 300, "system": "Denier", "color": "#e8e6e1" }
+  ],
+  "weftSequence": ["A", "B", "A", "C", "A", "D"],
+  "warpDensityLoom": 22,
+  "weftDensityLoom": 18,
+  "warpCrimpShare": 0.4,
+  "measured": {
+    "warpDensity": 24.6,
+    "weftDensity": 19.0,
+    "warpShrinkPct": 6,
+    "weftShrinkPct": 10,
+    "gsm": 226
+  }
+}

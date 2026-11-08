@@ -3,7 +3,9 @@
  * React/DOM/global uygulama state'i bağımlılığı yoktur; bu klasör olduğu gibi başka projeye kopyalanabilir.
  */
 export * from './types';
-export * from './geometry';
+export { yarnDiameterMm, spacingMm, yarnGeometry, DEFAULT_FIBER_DENSITY, toTex as toTexV1 } from './geometry';
+export type { YarnGeometry } from './geometry';
+export * from './physical';
 export { parseColor, toHex, cycleColor } from './color';
 export { mulberry32, hash3 } from './random';
 export { smoothstep, pmod, warpSign, weftSign, alongWave, crossProfile, ply } from './heightfield/wave';
@@ -23,10 +25,10 @@ export {
 } from './heightfield/render';
 export type { RenderHeightfieldOptions } from './heightfield/render';
 
-import type { FabricSpec, HeightfieldParams, WeaveInput } from './types';
+import type { FabricSpecV1, HeightfieldParams, WeaveInput } from './types';
 
 /** FabricSpec → render girdisi (rapor tekrarı iplik sayısına çevrilir). */
-export function weaveInputFromSpec(spec: FabricSpec): WeaveInput {
+export function weaveInputFromSpec(spec: FabricSpecV1): WeaveInput {
   const h = spec.weave.length;
   const w = spec.weave[0]?.length ?? 0;
   return {

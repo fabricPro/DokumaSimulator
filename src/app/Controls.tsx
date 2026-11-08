@@ -1,60 +1,18 @@
-import type { ReactNode } from 'react';
-import { yarnGeometry, type FabricSpec, type HeightfieldParams, type YarnSpec, type YarnSystem } from '../render-engine';
+import { useState, type ReactNode } from 'react';
+import {
+  MAX_SLOTS,
+  SLOT_NAMES,
+  diameterMm,
+  finishedDensities,
+  toTex,
+  type FabricSpec,
+  type YarnSlot,
+  type YarnSystem,
+} from '../render-engine';
 
-/* ------------------------------ Renk raporu ------------------------------ */
+const SYSTEMS: YarnSystem[] = ['Ne', 'Nm', 'Dtex', 'Denier', 'Tex'];
 
-export function ColorRepeatEditor({
-  title,
-  colors,
-  onChange,
-}: {
-  title: string;
-  colors: string[];
-  onChange: (c: string[]) => void;
-}) {
-  const set = (i: number, v: string) => onChange(colors.map((c, j) => (j === i ? v : c)));
-  const move = (i: number, d: number) => {
-    const j = i + d;
-    if (j < 0 || j >= colors.length) return;
-    const out = [...colors];
-    [out[i], out[j]] = [out[j], out[i]];
-    onChange(out);
-  };
-  return (
-    <div className="color-repeat">
-      <div className="color-repeat-head">
-        <span>{title}</span>
-        <span className="muted">{colors.length} renk</span>
-      </div>
-      <div className="swatches">
-        {colors.map((c, i) => (
-          <div className="swatch" key={i}>
-            <input type="color" value={normalizeHex(c)} onChange={(e) => set(i, e.target.value)} />
-            <div className="swatch-tools">
-              <button onClick={() => move(i, -1)} title="Sola">‹</button>
-              <button onClick={() => colors.length > 1 && onChange(colors.filter((_, j) => j !== i))} title="Sil">
-                ×
-              </button>
-              <button onClick={() => move(i, 1)} title="Sağa">›</button>
-            </div>
-          </div>
-        ))}
-        <button className="add" onClick={() => onChange([...colors, colors[colors.length - 1] ?? '#888888'])}>
-          +
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function normalizeHex(c: string): string {
-  const h = c.trim().replace(/^#/, '');
-  if (/^[0-9a-f]{6}$/i.test(h)) return '#' + h.toLowerCase();
-  if (/^[0-9a-f]{3}$/i.test(h)) return '#' + h.split('').map((x) => x + x).join('').toLowerCase();
-  return '#888888';
-}
-
-/* ------------------------------ Kaydırıcı ------------------------------ */
+/* ------------------------------ ortak ------------------------------ */
 
 export function Slider({
   label,
@@ -84,84 +42,267 @@ export function Slider({
   );
 }
 
-/* ------------------------------ Render parametreleri ------------------------------ */
-
-export type RenderParams = Omit<HeightfieldParams, 'cell'>;
-
-export function RenderControls({ params, onChange }: { params: RenderParams; onChange: (p: RenderParams) => void }) {
-  const set = <K extends keyof RenderParams>(k: K, v: RenderParams[K]) => onChange({ ...params, [k]: v });
+function NumberField({
+  label,
+  value,
+  step = 1,
+  min = 0,
+  onChange,
+  suffix,
+}: {
+  label: string;
+  value: number;
+  step?: number;
+  min?: number;
+  onChange: (v: number) => void;
+  suffix?: string;
+}) {
   return (
-    <section className="panel">
-      <h3>Görünüm</h3>
-      <Slider label="İplik kalınlığı" value={params.yarnRatio} min={0.3} max={1} step={0.01} onChange={(v) => set('yarnRatio', v)} format={(v) => v.toFixed(2)} />
-      <Slider label="Büküm adımı" value={params.plyPitch} min={0.2} max={1.5} step={0.01} onChange={(v) => set('plyPitch', v)} format={(v) => v.toFixed(2)} />
-      <Slider label="Büküm açısı" value={params.twistAngle} min={-1.5} max={1.5} step={0.01} onChange={(v) => set('twistAngle', v)} format={(v) => v.toFixed(2)} />
-      <Slider label="Dalgalanma" value={params.wobble} min={0} max={5} step={0.1} onChange={(v) => set('wobble', v)} format={(v) => v.toFixed(1)} />
-      <label className="slider">
-        <span className="slider-label">Seed</span>
-        <div className="row">
-          <input type="number" value={params.seed} onChange={(e) => set('seed', Math.floor(+e.target.value) || 0)} />
-          <button onClick={() => set('seed', Math.floor(Math.random() * 100000))}>Rastgele</button>
-        </div>
-      </label>
-    </section>
+    <label className="numfield">
+      <span>{label}</span>
+      <span className="numfield-input">
+        <input
+          type="number"
+          step={step}
+          min={min}
+          value={value}
+          onChange={(e) => {
+            const v = +e.target.value;
+            if (Number.isFinite(v) && v >= min) onChange(v);
+          }}
+        />
+        {suffix && <em>{suffix}</em>}
+      </span>
+    </label>
   );
 }
 
-/* ------------------------------ İplik / sıklık ------------------------------ */
+function normalizeHex(c: string): string {
+  const h = c.trim().replace(/^#/, '');
+  if (/^[0-9a-f]{6}$/i.test(h)) return '#' + h.toLowerCase();
+  if (/^[0-9a-f]{3}$/i.test(h)) return '#' + h.split('').map((x) => x + x).join('').toLowerCase();
+  return '#888888';
+}
 
-const SYSTEMS: YarnSystem[] = ['Ne', 'Nm', 'Dtex', 'Denier'];
+/* ------------------------------ slot kartı ------------------------------ */
 
-function YarnRow({ label, yarn, onChange }: { label: string; yarn: YarnSpec; onChange: (y: YarnSpec) => void }) {
+function SlotCard({
+  slot,
+  onChange,
+  onRemove,
+}: {
+  slot: YarnSlot;
+  onChange: (s: YarnSlot) => void;
+  onRemove?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  let info = '';
+  try {
+    const tex = toTex(slot.count, slot.system);
+    info = `${tex.toFixed(1)} tex · ⌀ ${diameterMm(tex, slot.yarnDensity ?? 0.85).toFixed(3)} mm`;
+  } catch {
+    info = 'geçersiz numara';
+  }
   return (
-    <div className="yarn-row">
-      <span>{label}</span>
-      <input type="number" min={0.1} step={0.1} value={yarn.count} onChange={(e) => +e.target.value > 0 && onChange({ ...yarn, count: +e.target.value })} />
-      <select value={yarn.system} onChange={(e) => onChange({ ...yarn, system: e.target.value as YarnSystem })}>
-        {SYSTEMS.map((s) => (
-          <option key={s}>{s}</option>
+    <div className="slot-card">
+      <div className="slot-head">
+        <span className="slot-badge" style={{ background: slot.color }}>
+          {slot.name}
+        </span>
+        <input
+          type="number"
+          min={0.1}
+          step={slot.system === 'Ne' || slot.system === 'Nm' ? 0.5 : 10}
+          value={slot.count}
+          onChange={(e) => +e.target.value > 0 && onChange({ ...slot, count: +e.target.value })}
+          title="İplik numarası"
+        />
+        <select value={slot.system} onChange={(e) => onChange({ ...slot, system: e.target.value as YarnSystem })}>
+          {SYSTEMS.map((s) => (
+            <option key={s}>{s}</option>
+          ))}
+        </select>
+        <input type="color" value={normalizeHex(slot.color)} onChange={(e) => onChange({ ...slot, color: e.target.value })} />
+        <button className="icon" onClick={() => setOpen(!open)} title="Gelişmiş">
+          {open ? '▴' : '▾'}
+        </button>
+        {onRemove && (
+          <button className="icon" onClick={onRemove} title="Slotu kaldır">
+            ×
+          </button>
+        )}
+      </div>
+      <div className="slot-info">{info}</div>
+      {open && (
+        <div className="slot-adv">
+          <NumberField
+            label="İplik yoğunluğu (g/cm³)"
+            value={slot.yarnDensity ?? 0.85}
+            step={0.01}
+            min={0.1}
+            onChange={(v) => onChange({ ...slot, yarnDensity: v })}
+          />
+          <label className="numfield">
+            <span>Büküm</span>
+            <select value={slot.twist} onChange={(e) => onChange({ ...slot, twist: e.target.value as 'S' | 'Z' })}>
+              <option value="S">S</option>
+              <option value="Z">Z</option>
+            </select>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------ rapor dizisi ------------------------------ */
+
+export function SequenceEditor({
+  sequence,
+  slots,
+  onChange,
+}: {
+  sequence: number[];
+  slots: YarnSlot[];
+  onChange: (s: number[]) => void;
+}) {
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [text, setText] = useState<string | null>(null);
+  const asText = sequence.map((s) => SLOT_NAMES[s]).join(' ');
+  const commitText = () => {
+    if (text === null) return;
+    const letters = text.toUpperCase().replace(/[^A-D]/g, '').split('');
+    const seq = letters.map((l) => SLOT_NAMES.indexOf(l as any)).filter((i) => i >= 0 && i < slots.length);
+    if (seq.length) onChange(seq);
+    setText(null);
+  };
+  return (
+    <div className="sequence">
+      <div className="chips">
+        {sequence.map((s, i) => (
+          <span
+            key={i}
+            className={'chip' + (dragFrom === i ? ' dragging' : '')}
+            style={{ borderColor: slots[s]?.color }}
+            draggable
+            onDragStart={() => setDragFrom(i)}
+            onDragEnd={() => setDragFrom(null)}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => {
+              if (dragFrom === null || dragFrom === i) return;
+              const out = [...sequence];
+              const [m] = out.splice(dragFrom, 1);
+              out.splice(i, 0, m);
+              onChange(out);
+              setDragFrom(null);
+            }}
+            onClick={() => onChange(sequence.map((v, k) => (k === i ? (v + 1) % slots.length : v)))}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (sequence.length > 1) onChange(sequence.filter((_, k) => k !== i));
+            }}
+            title="Tıkla: slot değiştir · sürükle: sırala · sağ tık: sil"
+          >
+            {SLOT_NAMES[s]}
+          </span>
         ))}
-      </select>
+        <button className="chip add" onClick={() => onChange([...sequence, sequence[sequence.length - 1] ?? 0])}>
+          +
+        </button>
+      </div>
       <input
-        type="number"
-        min={0.5}
-        step={0.01}
-        title="Lif yoğunluğu ρ (g/cm³)"
-        value={yarn.fiberDensity ?? 1.38}
-        onChange={(e) => +e.target.value > 0 && onChange({ ...yarn, fiberDensity: +e.target.value })}
+        className="seq-text"
+        value={text ?? asText}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commitText}
+        onKeyDown={(e) => e.key === 'Enter' && commitText()}
+        title="Harflerle yaz: A A B A C D"
       />
     </div>
   );
 }
 
-export function FabricControls({ spec, onChange }: { spec: FabricSpec; onChange: (s: FabricSpec) => void }) {
-  const set = <K extends keyof FabricSpec>(k: K, v: FabricSpec[K]) => onChange({ ...spec, [k]: v });
-  let ratioHint = '';
-  try {
-    const w = yarnGeometry(spec.warpYarn, spec.warpDensity);
-    const f = yarnGeometry(spec.weftYarn, spec.weftDensity);
-    ratioHint = `Hesaplanan çap/aralık — çözgü ${w.compression.toFixed(2)}, atkı ${f.compression.toFixed(2)} (çap ${w.diameter.toFixed(3)} / ${f.diameter.toFixed(3)} mm)`;
-  } catch {
-    ratioHint = '';
-  }
+/* ------------------------------ iplik paneli ------------------------------ */
+
+function remapSequence(seq: number[], removed: number): number[] {
+  return seq.map((s) => (s === removed ? 0 : s > removed ? s - 1 : s));
+}
+
+function SideSlots({
+  title,
+  slots,
+  sequence,
+  onChange,
+}: {
+  title: string;
+  slots: YarnSlot[];
+  sequence: number[];
+  onChange: (slots: YarnSlot[], sequence: number[]) => void;
+}) {
+  const rename = (list: YarnSlot[]) => list.map((s, i) => ({ ...s, name: SLOT_NAMES[i] }));
+  return (
+    <div className="side-slots">
+      <h4>{title}</h4>
+      {slots.map((s, i) => (
+        <SlotCard
+          key={i}
+          slot={s}
+          onChange={(ns) => onChange(slots.map((x, k) => (k === i ? ns : x)), sequence)}
+          onRemove={slots.length > 1 ? () => onChange(rename(slots.filter((_, k) => k !== i)), remapSequence(sequence, i)) : undefined}
+        />
+      ))}
+      {slots.length < MAX_SLOTS && (
+        <button
+          className="add-slot"
+          onClick={() => onChange(rename([...slots, { ...slots[slots.length - 1], color: '#b0b0b0' }]), sequence)}
+        >
+          + Slot {SLOT_NAMES[slots.length]}
+        </button>
+      )}
+      <div className="seq-label">Rapor dizisi ({sequence.length})</div>
+      <SequenceEditor sequence={sequence} slots={slots} onChange={(seq) => onChange(slots, seq)} />
+    </div>
+  );
+}
+
+export function YarnPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: FabricSpec) => void }) {
   return (
     <section className="panel">
-      <h3>İplik ve rapor</h3>
-      <div className="yarn-head">
-        <span />
-        <span>Numara</span>
-        <span>Sistem</span>
-        <span>ρ</span>
+      <h3>İplikler</h3>
+      <SideSlots
+        title="Çözgü"
+        slots={spec.warpSlots}
+        sequence={spec.warpSequence}
+        onChange={(warpSlots, warpSequence) => onChange({ ...spec, warpSlots, warpSequence })}
+      />
+      <SideSlots
+        title="Atkı (alttan)"
+        slots={spec.weftSlots}
+        sequence={spec.weftSequence}
+        onChange={(weftSlots, weftSequence) => onChange({ ...spec, weftSlots, weftSequence })}
+      />
+    </section>
+  );
+}
+
+/* ------------------------------ kumaş paneli ------------------------------ */
+
+export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: FabricSpec) => void }) {
+  const set = <K extends keyof FabricSpec>(k: K, v: FabricSpec[K]) => onChange({ ...spec, [k]: v });
+  const fin = finishedDensities(spec.warpDensityLoom, spec.weftDensityLoom, spec.warpShrinkPct, spec.weftShrinkPct);
+  return (
+    <section className="panel">
+      <h3>Kumaş</h3>
+      <div className="grid2">
+        <NumberField label="Tezgah çözgü sıklığı" suffix="tel/cm" value={spec.warpDensityLoom} step={0.5} min={1} onChange={(v) => set('warpDensityLoom', v)} />
+        <NumberField label="Tezgah atkı sıklığı" suffix="atkı/cm" value={spec.weftDensityLoom} step={0.5} min={1} onChange={(v) => set('weftDensityLoom', v)} />
       </div>
-      <YarnRow label="Çözgü" yarn={spec.warpYarn} onChange={(y) => set('warpYarn', y)} />
-      <YarnRow label="Atkı" yarn={spec.weftYarn} onChange={(y) => set('weftYarn', y)} />
-      <Slider label="Çözgü sıklığı (tel/cm)" value={spec.warpDensity} min={5} max={80} step={1} onChange={(v) => set('warpDensity', v)} />
-      <Slider label="Atkı sıklığı (tel/cm)" value={spec.weftDensity} min={5} max={80} step={1} onChange={(v) => set('weftDensity', v)} />
-      {ratioHint && <p className="hint">{ratioHint}. İplik kalınlığı kaydırıcısı şimdilik bundan bağımsız.</p>}
-      <Slider label="Rapor tekrarı X" value={spec.repeatX} min={1} max={20} step={1} onChange={(v) => set('repeatX', v)} />
-      <Slider label="Rapor tekrarı Y" value={spec.repeatY} min={1} max={20} step={1} onChange={(v) => set('repeatY', v)} />
-      <ColorRepeatEditor title="Çözgü renk raporu" colors={spec.warpColors} onChange={(c) => set('warpColors', c)} />
-      <ColorRepeatEditor title="Atkı renk raporu (alttan)" colors={spec.weftColors} onChange={(c) => set('weftColors', c)} />
+      <Slider label="Çözgü çekmesi" value={spec.warpShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('warpShrinkPct', v)} format={(v) => `%${v}`} />
+      <Slider label="Atkı çekmesi" value={spec.weftShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('weftShrinkPct', v)} format={(v) => `%${v}`} />
+      <Slider label="Kıvrım payı (çözgü)" value={spec.warpCrimpShare} min={0} max={1} step={0.01} onChange={(v) => set('warpCrimpShare', v)} format={(v) => v.toFixed(2)} />
+      <p className="hint">
+        Mamul: çözgü {fin.warp.toFixed(1)} tel/cm · atkı {fin.weft.toFixed(1)} atkı/cm
+      </p>
     </section>
   );
 }

@@ -3,7 +3,7 @@
  * Bu modül React'e, DOM'a veya global state'e bağımlı değildir.
  */
 
-export type YarnSystem = 'Ne' | 'Nm' | 'Dtex' | 'Denier';
+export type YarnSystem = 'Ne' | 'Nm' | 'Dtex' | 'Denier' | 'Tex';
 
 export interface YarnSpec {
   /** İplik numarası, `system` biriminde. */
@@ -13,7 +13,48 @@ export interface YarnSpec {
   fiberDensity?: number;
 }
 
+/* ------------------------------------------------------------------ */
+/* FabricSpec v2 — fiziksel ölçekli model                              */
+/* ------------------------------------------------------------------ */
+
+export type SlotName = 'A' | 'B' | 'C' | 'D';
+export const SLOT_NAMES: SlotName[] = ['A', 'B', 'C', 'D'];
+export const MAX_SLOTS = 4;
+
+export interface YarnSlot {
+  name: SlotName;
+  count: number;
+  system: YarnSystem;
+  color: string;
+  /** İplik hacim yoğunluğu (g/cm³). Varsayılan 0.85 (filament ~1.0, spun ~0.8). */
+  yarnDensity?: number;
+  /** Büküm yönü; referansın çizdiği yön S'dir. */
+  twist: 'S' | 'Z';
+}
+
 export interface FabricSpec {
+  version: 2;
+  /** true = çözgü üstte. Satır = atkı (0. atkı en altta), sütun = çözgü. */
+  weave: boolean[][];
+  warpSlots: YarnSlot[];
+  weftSlots: YarnSlot[];
+  /** Slot indeks raporu (ör. [0,0,1,0,2,3] = A A B A C D); tekrar ederek uygulanır. */
+  warpSequence: number[];
+  weftSequence: number[];
+  /** Tezgah çözgü sıklığı, tel/cm. */
+  warpDensityLoom: number;
+  /** Tezgah atkı sıklığı, atkı/cm. */
+  weftDensityLoom: number;
+  /** Çözgü çekmesi % (boy kısalır → atkı sıklığı artar). */
+  warpShrinkPct: number;
+  /** Atkı çekmesi % (en daralır → çözgü sıklığı artar). */
+  weftShrinkPct: number;
+  /** Kıvrımın çözgüye düşen payı (Peirce h1/(h1+h2)), varsayılan 0.4. */
+  warpCrimpShare: number;
+}
+
+/** v1 FabricSpec (eski JSON'lar; yalnız geriye uyumlu okuma için). */
+export interface FabricSpecV1 {
   /** true = çözgü üstte. Satır = atkı (0. atkı en altta çizilir), sütun = çözgü. */
   weave: boolean[][];
   /** Çözgü renk raporu; tekrar ederek uygulanır. */

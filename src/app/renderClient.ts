@@ -1,10 +1,13 @@
-import type { HeightfieldParams, Region, RgbaImage, WeaveInput } from '../render-engine';
-import type { RenderJob, RenderJobResult } from '../render-engine/worker';
+import type { RgbaImage } from '../render-engine';
+import type { PhysicalInfo, RenderJob, RenderJobResult } from '../render-engine/worker';
 
 export interface RenderResult {
   image: RgbaImage;
   ms: number;
+  physical?: PhysicalInfo;
 }
+
+type JobBody = RenderJob extends infer J ? (J extends { id: number } ? Omit<J, 'id'> : never) : never;
 
 /**
  * Tek bir Web Worker'ı saran, "en son istek kazanır" kuyruğu.
@@ -23,9 +26,9 @@ export class RenderClient {
   }
 
   /** İsteği kuyruğa koyar. Daha yeni bir istek onu geçersiz kılarsa null döner. */
-  request(input: WeaveInput, params: HeightfieldParams, region?: Region): Promise<RenderResult | null> {
+  request(body: JobBody): Promise<RenderResult | null> {
     return new Promise((resolve) => {
-      const job: RenderJob = { id: this.nextId++, input, params, region };
+      const job = { ...body, id: this.nextId++ } as RenderJob;
       if (this.pending) this.pending.resolve(null);
       this.pending = { job, resolve };
       this.pump();
@@ -53,6 +56,7 @@ export class RenderClient {
         cur.resolve({
           image: { width: res.width, height: res.height, data: new Uint8ClampedArray(res.buffer) },
           ms: res.ms,
+          physical: res.physical,
         });
       }
     }

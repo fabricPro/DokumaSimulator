@@ -1,42 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  DEFAULT_PARAMS,
-  imageSize,
-  scaleParams,
-  weaveInputFromSpec,
-  type FabricSpec,
-} from '../render-engine';
+import { computeMetrics, squeezeCheck, type FabricSpec } from '../render-engine';
+import type { PhysicalInfo } from '../render-engine/worker';
 import { parseWif } from '../importers/wif';
 import { parseFabricJson, serializeFabricJson } from '../importers/fabricJson';
 import { atkiJsonImporter } from '../importers/atkiJson';
-import { dobbyFancy } from '../presets/weaves';
-import { FabricControls, RenderControls, type RenderParams } from './Controls';
-import { FabricView, type FabricViewHandle, type ViewState } from './FabricView';
+import { colorsToSlots } from '../importers/slots';
+import { physicalExample } from '../presets/physicalExample';
+import { FabricPanel, YarnPanel } from './Controls';
+import { FabricPane, MAX_PPM, MIN_PPM, type MmView } from './FabricPane';
+import { MetricsBar } from './MetricsBar';
 import { RenderClient, imageToCanvas } from './renderClient';
 import { WeaveEditor } from './WeaveEditor';
 
-const T = '#3fc0d2';
-const G = '#4a5058';
-
-const INITIAL_SPEC: FabricSpec = {
-  weave: dobbyFancy(),
-  warpColors: [T, G, T, G, G, T, G, T],
-  weftColors: [G, T, G, G, T, G, T, T, G],
-  warpYarn: { count: 30, system: 'Ne' },
-  weftYarn: { count: 30, system: 'Ne' },
-  warpDensity: 30,
-  weftDensity: 28,
-  repeatX: 3,
-  repeatY: 3,
-};
-
-const { cell: _cell, ...INITIAL_PARAMS } = DEFAULT_PARAMS;
-void _cell;
-
 /** PNG dışa aktarmada izin verilen en büyük piksel sayısı. */
-const MAX_EXPORT_PIXELS = 64_000_000;
+const MAX_EXPORT_PIXELS = 40_000_000;
+const AREAS_MM = [5, 10, 20];
 
-/** Değeri gecikmeli yansıtır (ağır yeniden render'ları seyreltmek için). */
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -55,24 +34,48 @@ function download(name: string, blob: Blob) {
 }
 
 export function App() {
-  const [spec, setSpec] = useState<FabricSpec>(INITIAL_SPEC);
-  const [params, setParams] = useState<RenderParams>(INITIAL_PARAMS);
-  const [view, setView] = useState<ViewState>({ cell: 36, panX: 0, panY: 0 });
+  const [spec, setSpec] = useState<FabricSpec>(() => physicalExample(6, 10));
+  const [seed, setSeed] = useState(3);
+  const [mode, setMode] = useState<'single' | 'compare'>('compare');
+  const [view, setView] = useState<MmView>({ x0Mm: 0, y0Mm: 0, pxPerMm: 60 });
+  const [paneSize, setPaneSize] = useState({ w: 0, h: 0 });
+  const [info, setInfo] = useState<PhysicalInfo | null>(null);
   const [message, setMessage] = useState('');
   const [exportScale, setExportScale] = useState(2);
   const [exporting, setExporting] = useState(false);
-  const viewRef = useRef<FabricViewHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const fitted = useRef(false);
 
-  // Örgü/renk değişikliklerinde yeniden çizim debounce'lu; kaydırıcılar önizleme ile anında
   const debSpec = useDebounced(spec, 60);
-  const input = useMemo(() => weaveInputFromSpec(debSpec), [debSpec]);
+  const loomSpec = useMemo(() => ({ ...debSpec, warpShrinkPct: 0, weftShrinkPct: 0 }), [debSpec]);
 
+  const metrics = useMemo(() => {
+    try {
+      return computeMetrics(spec);
+    } catch {
+      return null;
+    }
+  }, [spec]);
+  const sq = useMemo(() => {
+    try {
+      return squeezeCheck(spec);
+    } catch {
+      return null;
+    }
+  }, [spec]);
+
+  const onSize = useCallback((w: number, h: number) => setPaneSize({ w, h }), []);
+  const setArea = useCallback(
+    (mm: number) => setView((v) => ({ ...v, pxPerMm: Math.max(MIN_PPM, Math.min(MAX_PPM, paneSize.w / mm)) })),
+    [paneSize.w],
+  );
+  // İlk ölçümde 10 mm göster
   useEffect(() => {
-    // İlk açılışta ekrana sığdır
-    const t = setTimeout(() => viewRef.current?.fit(), 50);
-    return () => clearTimeout(t);
-  }, []);
+    if (fitted.current || paneSize.w < 100) return;
+    fitted.current = true;
+    setArea(10);
+  }, [paneSize.w, setArea]);
+  const shownMm = (paneSize.w || 600) / view.pxPerMm;
 
   const onImport = async (file: File) => {
     try {
@@ -82,55 +85,70 @@ export function App() {
         setSpec((s) => ({ ...s, ...atkiJsonImporter.parse(text) }));
       } else if (name.endsWith('.wif')) {
         const r = parseWif(text);
-        setSpec((s) => ({
-          ...s,
-          weave: r.weave,
-          warpColors: r.warpColors ?? s.warpColors,
-          weftColors: r.weftColors ?? s.weftColors,
-          repeatX: Math.max(1, Math.round(28 / r.weave[0].length)),
-          repeatY: Math.max(1, Math.round(28 / r.weave.length)),
-        }));
-        setMessage(
-          `WIF yüklendi: ${r.weave[0].length}×${r.weave.length}` + (r.warnings.length ? ` · ${r.warnings.join(' ')}` : ''),
-        );
+        const warnings = [...r.warnings];
+        const next: FabricSpec = { ...spec, weave: r.weave };
+        if (r.warpColors) {
+          const w = colorsToSlots(r.warpColors, spec.warpSlots[0], 'Çözgü');
+          next.warpSlots = w.slots;
+          next.warpSequence = w.sequence;
+          warnings.push(...w.warnings);
+        }
+        if (r.weftColors) {
+          const f = colorsToSlots(r.weftColors, spec.weftSlots[0], 'Atkı');
+          next.weftSlots = f.slots;
+          next.weftSequence = f.sequence;
+          warnings.push(...f.warnings);
+        }
+        setSpec(next);
+        setMessage(`WIF yüklendi: ${r.weave[0].length}×${r.weave.length}` + (warnings.length ? ` · ${warnings.join(' ')}` : ''));
       } else {
-        setSpec(parseFabricJson(text));
-        setMessage('FabricSpec JSON yüklendi.');
+        const p = parseFabricJson(text);
+        setSpec(p.spec);
+        setMessage((p.migrated ? 'Eski biçim JSON v2\'ye çevrildi.' : 'FabricSpec JSON yüklendi.') + (p.warnings.length ? ' ' + p.warnings.join(' ') : ''));
       }
-      setTimeout(() => viewRef.current?.fit(), 100);
     } catch (e) {
       setMessage('İçe aktarma hatası: ' + (e as Error).message);
     }
   };
 
-  const exportPng = useCallback(async () => {
-    const p = scaleParams({ ...params, cell: view.cell }, exportScale);
-    const inp = weaveInputFromSpec(spec);
-    const { width, height } = imageSize(inp, p.cell);
-    if (width * height > MAX_EXPORT_PIXELS) {
-      setMessage(`Çok büyük: ${width}×${height} px. Zoom'u veya tekrar sayısını azaltın.`);
+  const exportPng = async () => {
+    const ppm = view.pxPerMm * exportScale;
+    const wMm = paneSize.w / view.pxPerMm;
+    const hMm = paneSize.h / view.pxPerMm;
+    const W = Math.trunc(wMm * ppm);
+    const H = Math.trunc(hMm * ppm);
+    if (W * H > MAX_EXPORT_PIXELS) {
+      setMessage(`Çok büyük: ${W}×${H} px.`);
       return;
     }
     setExporting(true);
-    setMessage(`PNG hazırlanıyor (${width}×${height} px)…`);
+    setMessage(`PNG hazırlanıyor (${W}×${H} px)…`);
     const client = new RenderClient();
     try {
-      const res = await client.request(inp, p);
+      const res = await client.request({
+        kind: 'physical',
+        spec,
+        seed,
+        scaleBar: true,
+        view: { x0Mm: view.x0Mm, y0Mm: view.y0Mm, widthMm: wMm, heightMm: hMm, pxPerMm: ppm },
+      });
       if (!res) throw new Error('render iptal edildi');
       const canvas = imageToCanvas(res.image);
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = 'rgb(240,240,240)';
+      ctx.font = `${Math.round(15 * exportScale)}px system-ui, sans-serif`;
+      ctx.fillText('1 mm', 12, res.image.height - 36);
       const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, 'image/png'));
       if (!blob) throw new Error('PNG kodlanamadı');
-      download(`dokuma-${width}x${height}.png`, blob);
-      setMessage(`PNG kaydedildi: ${width}×${height} px · ${Math.round(res.ms)} ms`);
+      download(`dokuma-${wMm.toFixed(1)}mm-${W}x${H}.png`, blob);
+      setMessage(`PNG kaydedildi: ${W}×${H} px · ${Math.round(res.ms)} ms`);
     } catch (e) {
       setMessage('PNG hatası: ' + (e as Error).message);
     } finally {
       client.dispose();
       setExporting(false);
     }
-  }, [params, view.cell, exportScale, spec]);
-
-  const exportPreviewSize = imageSize(weaveInputFromSpec(spec), view.cell * exportScale);
+  };
 
   return (
     <div className="app">
@@ -160,21 +178,59 @@ export function App() {
               </option>
             ))}
           </select>
-          <button onClick={exportPng} disabled={exporting} title={`${exportPreviewSize.width}×${exportPreviewSize.height} px`}>
+          <button onClick={exportPng} disabled={exporting}>
             PNG dışa aktar
           </button>
         </div>
         {message && <div className="message">{message}</div>}
       </header>
       <aside className="sidebar">
-        <RenderControls params={params} onChange={setParams} />
-        <FabricControls spec={spec} onChange={setSpec} />
+        <YarnPanel spec={spec} onChange={setSpec} />
+        <FabricPanel spec={spec} onChange={setSpec} />
       </aside>
       <section className="editor-col">
         <WeaveEditor weave={spec.weave} onChange={(weave) => setSpec((s) => ({ ...s, weave }))} />
       </section>
       <main className="render-col">
-        <FabricView ref={viewRef} input={input} params={params} view={view} onViewChange={setView} />
+        <div className="view-bar">
+          <div className="seg">
+            <button className={mode === 'single' ? 'on' : ''} onClick={() => setMode('single')}>
+              Tek
+            </button>
+            <button className={mode === 'compare' ? 'on' : ''} onClick={() => setMode('compare')}>
+              Tezgah | Mamul
+            </button>
+          </div>
+          <div className="seg">
+            {AREAS_MM.map((mm) => (
+              <button key={mm} className={Math.abs(shownMm - mm) < 0.05 ? 'on' : ''} onClick={() => setArea(mm)}>
+                {mm} mm
+              </button>
+            ))}
+          </div>
+          <span className="muted">
+            {shownMm.toFixed(1)} mm · {view.pxPerMm.toFixed(0)} px/mm
+          </span>
+          <label className="seed">
+            seed
+            <input type="number" value={seed} onChange={(e) => setSeed(Math.floor(+e.target.value) || 0)} />
+          </label>
+        </div>
+        {metrics && sq && <MetricsBar metrics={metrics} squeeze={sq} openPct={info?.openPct ?? null} />}
+        <div className={`panes ${mode}`}>
+          {mode === 'compare' && (
+            <FabricPane spec={loomSpec} seed={seed} view={view} title="Tezgah" onViewChange={setView} />
+          )}
+          <FabricPane
+            spec={debSpec}
+            seed={seed}
+            view={view}
+            title={mode === 'compare' ? 'Mamul' : undefined}
+            onViewChange={setView}
+            onInfo={setInfo}
+            onSize={onSize}
+          />
+        </div>
       </main>
     </div>
   );

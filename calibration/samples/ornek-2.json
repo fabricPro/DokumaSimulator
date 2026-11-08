@@ -1,0 +1,19 @@
+{
+  "name": "ÖRNEK-2 (3/1 dimi, tek iplik)",
+  "example": true,
+  "note": "ÖRNEK KAYIT — ölçümler uydurmadır. Gerçek numune verisiyle değiştirin.",
+  "weavePreset": "twill31",
+  "warpSlots": [{ "count": 150, "system": "Denier", "color": "#203a5c" }],
+  "warpSequence": ["A"],
+  "weftSlots": [{ "count": 30, "system": "Ne", "color": "#e0d8c8" }],
+  "weftSequence": ["A"],
+  "warpDensityLoom": 48,
+  "weftDensityLoom": 26,
+  "measured": {
+    "warpDensity": 51.5,
+    "weftDensity": 27.2,
+    "warpShrinkPct": 4,
+    "weftShrinkPct": 7,
+    "gsm": 172
+  }
+}

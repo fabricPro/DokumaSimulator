@@ -1,0 +1,14 @@
+export { toTex, diameterMm, normalizeSystem, DEFAULT_YARN_DENSITY } from './yarnPhysics';
+export { UniformPositionGenerator } from './positions';
+export type { PositionGenerator } from './positions';
+export { finishedDensities } from './shrinkage';
+export type { FinishedDensities } from './shrinkage';
+export { squeeze, interlacing, ashenhurstMax, MIN_SQUEEZE } from './squeeze';
+export type { SqueezeResult, InterlacingStats } from './squeeze';
+export { computeMetrics, jamLevel, squeezeCheck } from './metrics';
+export type { FabricMetrics, MetricsOptions, WarningLevel, SqueezeCheck } from './metrics';
+export { simulatePhysical } from './simulate';
+export type { PhysicalView, SimulateOptions, SimulateResult } from './simulate';
+export { createPhysicalRandom, constantPhysicalRandom } from './random';
+export type { PhysicalRandomSource } from './random';
+export { slotTable, slotOf, slotIndices, hexToRgb01 } from './yarns';

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dokuma-simulatoru/calibration-record",
+  "title": "Gerçek numune kalibrasyon kaydı",
+  "description": "Bir numunenin üretim girdileri ve laboratuvar ölçümleri. scripts/calibrate.ts bu kayıtları okur, simülasyonla karşılaştırır ve yarnDensity / warpCrimpShare önerir.",
+  "type": "object",
+  "required": ["name", "warpSlots", "weftSlots", "warpSequence", "weftSequence", "warpDensityLoom", "weftDensityLoom", "measured"],
+  "oneOf": [{ "required": ["weave"] }, { "required": ["weavePreset"] }],
+  "properties": {
+    "name": { "type": "string", "description": "Numune adı / kodu" },
+    "date": { "type": "string", "description": "Ölçüm tarihi (YYYY-AA-GG)" },
+    "note": { "type": "string" },
+    "example": { "type": "boolean", "description": "true ise kayıt örnektir, gerçek veri değildir" },
+    "weave": {
+      "description": "Örgü matrisi: satır = atkı (0. satır ilk atkı, en altta), sütun = çözgü, true = çözgü üstte",
+      "type": "array",
+      "items": { "type": "array", "items": { "type": "boolean" }, "minItems": 1 },
+      "minItems": 1
+    },
+    "weavePreset": { "enum": ["plain", "twill22", "twill31", "satin5", "panama", "dobby"] },
+    "warpSlots": { "$ref": "#/$defs/slots" },
+    "weftSlots": { "$ref": "#/$defs/slots" },
+    "warpSequence": { "$ref": "#/$defs/sequence" },
+    "weftSequence": { "$ref": "#/$defs/sequence" },
+    "warpDensityLoom": { "type": "number", "exclusiveMinimum": 0, "description": "Tezgah çözgü sıklığı (tel/cm)" },
+    "weftDensityLoom": { "type": "number", "exclusiveMinimum": 0, "description": "Tezgah atkı sıklığı (atkı/cm)" },
+    "warpCrimpShare": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.4 },
+    "measured": {
+      "type": "object",
+      "description": "Mamul numunede ölçülen değerler. Eksik alanlar karşılaştırmada atlanır.",
+      "properties": {
+        "warpDensity": { "type": "number", "description": "Mamul çözgü sıklığı (tel/cm)" },
+        "weftDensity": { "type": "number", "description": "Mamul atkı sıklığı (atkı/cm)" },
+        "warpShrinkPct": { "type": "number", "minimum": 0, "maximum": 99, "description": "Ölçülen çözgü çekmesi %" },
+        "weftShrinkPct": { "type": "number", "minimum": 0, "maximum": 99, "description": "Ölçülen atkı çekmesi %" },
+        "gsm": { "type": "number", "exclusiveMinimum": 0, "description": "Ölçülen gramaj (g/m²)" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "slots": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["count", "system"],
+        "properties": {
+          "count": { "type": "number", "exclusiveMinimum": 0 },
+          "system": { "enum": ["Ne", "Nm", "Dtex", "Denier", "Tex"] },
+          "color": { "type": "string" },
+          "yarnDensity": { "type": "number", "exclusiveMinimum": 0, "description": "Verilirse kalibrasyonda sabit tutulur" },
+          "twist": { "enum": ["S", "Z"] }
+        }
+      }
+    },
+    "sequence": {
+      "description": "Slot sırası: indeks (0..3) veya harf (A..D)",
+      "type": "array",
+      "minItems": 1,
+      "items": { "oneOf": [{ "type": "integer", "minimum": 0, "maximum": 3 }, { "enum": ["A", "B", "C", "D"] }] }
+    }
+  }
+}

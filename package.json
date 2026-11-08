@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "samples": "tsx scripts/render-samples.ts"
+    "samples": "tsx scripts/render-samples.ts",
+    "samples:phys": "tsx scripts/render-phys-samples.ts",
+    "calibrate": "tsx scripts/calibrate.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

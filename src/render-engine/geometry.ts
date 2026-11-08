@@ -16,6 +16,8 @@ export function toTex(yarn: Pick<YarnSpec, 'count' | 'system'>): number {
       return count / 10;
     case 'Denier':
       return count / 9;
+    case 'Tex':
+      return count;
     default:
       throw new Error(`Bilinmeyen numara sistemi: ${String(system)}`);
   }
