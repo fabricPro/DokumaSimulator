@@ -1,58 +1,29 @@
 /**
- * Sıkışma ve Ashenhurst teorik maksimum sıklığı. Karşılık: reference/weave_phys.py §3.
+ * Bağlantı istatistikleri ve Ashenhurst teorik maksimum sıklığı.
+ *
+ * İki farklı "I" vardır, karıştırılmamalı:
+ *  - Ashenhurst (yanal sığma): çözgü sıklığı için I = bir atkı boyunca atkının çözgülerin arasından
+ *    geçiş sayısı = Σ_k w_k (komşu çözgülerin farklı durumda olduğu yerler), E = rapordaki çözgü sayısı.
+ *    reference/weave_phys.py bunu eksenleri ters sayarak hesaplıyordu; burada düzeltildi, bu yüzden
+ *    sıkışma oranı referanstan bilinçli olarak farklıdır.
+ *  - Peirce kıvrımı: I = iplik boyunca bağlantı değişimi sayısı, E = iplik boyunca rapor uzunluğu
+ *    (alongYarnInterlacing). Referanstaki tanım bu kullanım için doğrudur.
  */
+import { sum, warpGapBinding, weftGapBinding } from './interlacing';
 
+/** "Sıkıştı" eşiği: komşu aralığı (r_k + r_k+1)·MIN_SQUEEZE'den küçükse. */
 export const MIN_SQUEEZE = 0.55;
 
-export interface SqueezeResult {
-  /** Genişlik ölçeği s (≤ 1, alt sınır MIN_SQUEEZE). */
-  width: Float64Array;
-  /** Yükseklik ölçeği s^−0.5 (yanal sıkışan iplik yükselir). */
-  height: Float64Array;
-  /** s alt sınırın altına inen ("sıkıştı") iplikler. */
-  jammed: Uint8Array;
-  anyJammed: boolean;
-}
-
-/** Komşu merkez mesafesi < r_k + r_k+1 ise iki ipliği orantılı daralt. */
-export function squeeze(centers: ArrayLike<number>, radii: ArrayLike<number>, minScale = MIN_SQUEEZE): SqueezeResult {
-  const n = centers.length;
-  const s = new Float64Array(n).fill(1);
-  for (let k = 0; k < n - 1; k++) {
-    const gap = centers[k + 1] - centers[k];
-    const need = radii[k] + radii[k + 1];
-    if (need > gap) {
-      const f = gap / need;
-      s[k] = Math.min(s[k], f);
-      s[k + 1] = Math.min(s[k + 1], f);
-    }
-  }
-  const jammed = new Uint8Array(n);
-  const height = new Float64Array(n);
-  let anyJammed = false;
-  for (let k = 0; k < n; k++) {
-    if (s[k] < minScale) {
-      jammed[k] = 1;
-      anyJammed = true;
-    }
-    s[k] = Math.max(s[k], minScale);
-    height[k] = s[k] ** -0.5;
-  }
-  return { width: s, height, jammed, anyJammed };
-}
-
 export interface InterlacingStats {
-  /** Rapordaki iplik sayısı (iplik boyunca rapor uzunluğu). */
   E: number;
-  /** Rapor boyunca ortalama bağlantı değişimi sayısı (döngüsel). */
   I: number;
 }
 
 /**
- * axis 'warp' → her çözgü (sütun) boyunca satırlar; 'weft' → her atkı (satır) boyunca sütunlar.
- * Referanstaki gibi E = iplik boyunca rapor uzunluğu, I = np.roll ile döngüsel değişim ortalaması.
+ * İplik boyunca bağlantı (kıvrım için): axis 'warp' → her çözgü boyunca (E = rapordaki atkı sayısı),
+ * 'weft' → her atkı boyunca (E = rapordaki çözgü sayısı). I = döngüsel durum değişimi ortalaması.
  */
-export function interlacing(M: boolean[][], axis: 'warp' | 'weft'): InterlacingStats {
+export function alongYarnInterlacing(M: boolean[][], axis: 'warp' | 'weft'): InterlacingStats {
   const rows = M.length;
   const cols = M[0].length;
   const lines = axis === 'warp' ? cols : rows;
@@ -65,8 +36,18 @@ export function interlacing(M: boolean[][], axis: 'warp' | 'weft'): InterlacingS
   return { E, I: total / lines };
 }
 
-/** Ashenhurst teorik maksimum sıklık (tel/cm): 10/d · E/(E+I). */
+/**
+ * Ashenhurst için yanal bağlantı: çözgü sıklığı → E = rapordaki çözgü sayısı, I = Σ w_k (çözgü aralıkları).
+ * Atkı sıklığı → E = rapordaki atkı sayısı, I = Σ w_k (atkı aralıkları).
+ */
+export function lateralInterlacing(M: boolean[][], axis: 'warp' | 'weft'): InterlacingStats {
+  return axis === 'warp'
+    ? { E: M[0].length, I: sum(warpGapBinding(M)) }
+    : { E: M.length, I: sum(weftGapBinding(M)) };
+}
+
+/** Ashenhurst teorik maksimum sıklık (tel/cm): (10/d)·E/(E+I). Üst sınırdır, kesin dokunabilirlik sınırı değil. */
 export function ashenhurstMax(M: boolean[][], axis: 'warp' | 'weft', dMm: number): InterlacingStats & { max: number } {
-  const st = interlacing(M, axis);
+  const st = lateralInterlacing(M, axis);
   return { ...st, max: (10 / dMm) * (st.E / (st.E + st.I)) };
 }

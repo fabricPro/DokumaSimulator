@@ -5,13 +5,10 @@
  * konuma, aynı örgü sütun/satırına ve aynı slot sırasına düşer. Böylece görünüm penceresi
  * kaydırıldığında kumaş "yerinde" kalır.
  *
- * TASARIM NOTU — ReedPositionGenerator (henüz yazılmadı):
- *   Girdi: tarak diş sıklığı (diş/cm), diş başına tel raporu (ör. [2, 2, 3, 0] → 0 = boş diş),
- *   atkı çekmesiyle mamule ölçek. Bir rapor periyodu = rapor diş sayısı / diş sıklığı (cm);
- *   periyot içindeki her telin ofseti, dişin merkezi etrafında diş içindeki tel sayısına göre
- *   dağıtılır; boş diş yalnızca konumu kaydırır. `centers` periyodik ofset tablosundan
- *   g → (periyot no, periyot içi sıra) ile üretilir; `indexRange` ikili aramayla bulunur;
- *   `meanPitchMm` = periyot / periyottaki tel sayısı. Bu arayüz bunun için yeterlidir.
+ * Üreticiler:
+ *   - UniformPositionGenerator: düzgün aralık (tarak girilmemişse tezgah konumu; referansla birebir).
+ *   - ReedPositionGenerator (render-engine/reed): tarak raporundan tezgah konumu.
+ *   - PeriodicPositionGenerator: periyodik ofset tablosu (tarak ve çekme dağılımı sonucu).
  */
 
 export interface PositionGenerator {
@@ -49,5 +46,68 @@ export class UniformPositionGenerator implements PositionGenerator {
 
   meanPitchMm(): number {
     return this.pitch;
+  }
+}
+
+/** En büyük ortak bölen / en küçük ortak kat. */
+export function gcd(a: number, b: number): number {
+  while (b) [a, b] = [b, a % b];
+  return Math.abs(a);
+}
+export function lcm(a: number, b: number): number {
+  return (a / gcd(a, b)) * b;
+}
+
+/**
+ * Periyodik konum tablosu: c_g = floor(g/P)·periodWidth + offsets[g mod P].
+ * offsets artan olmalı ve offsets[P−1] < offsets[0] + periodWidth.
+ */
+export class PeriodicPositionGenerator implements PositionGenerator {
+  readonly period: number;
+
+  constructor(
+    readonly offsets: Float64Array,
+    readonly periodWidth: number,
+  ) {
+    if (offsets.length === 0 || !(periodWidth > 0)) throw new Error('Geçersiz periyodik konum tablosu.');
+    this.period = offsets.length;
+  }
+
+  center(g: number): number {
+    const P = this.period;
+    const q = Math.floor(g / P);
+    return q * this.periodWidth + this.offsets[g - q * P];
+  }
+
+  centers(firstIndex: number, count: number): Float64Array {
+    const out = new Float64Array(count);
+    for (let k = 0; k < count; k++) out[k] = this.center(firstIndex + k);
+    return out;
+  }
+
+  /** c_g ≤ x olan en büyük g. */
+  private floorIndex(x: number): number {
+    const P = this.period;
+    const q = Math.floor((x - this.offsets[0]) / this.periodWidth);
+    let lo = q * P - 1;
+    let hi = (q + 1) * P + 1;
+    while (this.center(lo) > x) lo -= P;
+    while (this.center(hi) <= x) hi += P;
+    while (hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (this.center(mid) <= x) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  indexRange(x0Mm: number, x1Mm: number): { first: number; count: number } {
+    const first = this.floorIndex(x0Mm) - 1;
+    const last = this.floorIndex(x1Mm) + 2;
+    return { first, count: last - first + 1 };
+  }
+
+  meanPitchMm(): number {
+    return this.periodWidth / this.period;
   }
 }

@@ -1,0 +1,242 @@
+{
+  "bezayagi_2li_0": {
+    "title": "Bezayağı + 2'li düz (6 diş/cm)",
+    "shrinkPct": 0,
+    "loomWarpDensity": 12,
+    "Dw": 12,
+    "Df": 12,
+    "openPctLoom": 52.292052469135804,
+    "openPct": 52.292052469135804,
+    "poreMm": [
+      0.9796950152212465,
+      0.609771261415935
+    ],
+    "groupWidthMm": [
+      0.22356207191739846,
+      0.22356207191739844
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "bezayagi_2li_8": {
+    "title": "Bezayağı + 2'li düz (6 diş/cm)",
+    "shrinkPct": 8,
+    "loomWarpDensity": 12,
+    "Dw": 13.043478260869565,
+    "Df": 13.043478260869565,
+    "openPctLoom": 52.292052469135804,
+    "openPct": 48.965644709340005,
+    "poreMm": [
+      0.8961814283687479,
+      0.5431045947492681
+    ],
+    "groupWidthMm": [
+      0.2235620719173984,
+      0.22356207191739846
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "bezayagi_2li_15": {
+    "title": "Bezayağı + 2'li düz (6 diş/cm)",
+    "shrinkPct": 15,
+    "loomWarpDensity": 12,
+    "Dw": 14.117647058823529,
+    "Df": 14.117647058823529,
+    "openPctLoom": 52.292052469135804,
+    "openPct": 45.59946728282148,
+    "poreMm": [
+      0.7795147617020812,
+      0.4847712614159348
+    ],
+    "groupWidthMm": [
+      0.22356207191739844,
+      0.22356207191739846
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "panama_2li_0": {
+    "title": "Panama 2/2 + 2'li düz (6 diş/cm)",
+    "shrinkPct": 0,
+    "loomWarpDensity": 12,
+    "Dw": 12,
+    "Df": 12,
+    "openPctLoom": 52.292052469135804,
+    "openPct": 52.292052469135804,
+    "poreMm": [
+      0.9796950152212465,
+      0.609771261415935
+    ],
+    "groupWidthMm": [
+      0.2235620719173985,
+      0.22356207191739846
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "panama_2li_8": {
+    "title": "Panama 2/2 + 2'li düz (6 diş/cm)",
+    "shrinkPct": 8,
+    "loomWarpDensity": 12,
+    "Dw": 13.043478260869565,
+    "Df": 13.043478260869565,
+    "openPctLoom": 52.292052469135804,
+    "openPct": 48.99735304855787,
+    "poreMm": [
+      0.9648802004064319,
+      0.5949564466011199
+    ],
+    "groupWidthMm": [
+      0.22356207191739852,
+      0.2235620719173985
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "panama_2li_15": {
+    "title": "Panama 2/2 + 2'li düz (6 diş/cm)",
+    "shrinkPct": 15,
+    "loomWarpDensity": 12,
+    "Dw": 14.117647058823529,
+    "Df": 14.117647058823529,
+    "openPctLoom": 52.292052469135804,
+    "openPct": 45.5971865639709,
+    "poreMm": [
+      0.9519172374434692,
+      0.5819934836381571
+    ],
+    "groupWidthMm": [
+      0.22356207191739846,
+      0.2235620719173985
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "yalanci_lino_3-0-0_0": {
+    "title": "3×3 yalancı lino + 3-0-0 (12 diş/cm)",
+    "shrinkPct": 0,
+    "loomWarpDensity": 12,
+    "Dw": 12,
+    "Df": 12,
+    "openPctLoom": 54.73109567901235,
+    "openPct": 54.73109567901235,
+    "poreMm": [
+      1.8293137842478049,
+      0.6097712614159354
+    ],
+    "groupWidthMm": [
+      0.6706862157521949,
+      0.22356207191739833
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "yalanci_lino_3-0-0_8": {
+    "title": "3×3 yalancı lino + 3-0-0 (12 diş/cm)",
+    "shrinkPct": 8,
+    "loomWarpDensity": 12,
+    "Dw": 13.043478260869565,
+    "Df": 13.043478260869565,
+    "openPctLoom": 54.73109567901235,
+    "openPct": 51.411582414212184,
+    "poreMm": [
+      1.629313784247805,
+      0.5752885027952455
+    ],
+    "groupWidthMm": [
+      0.6706862157521951,
+      0.22356207191739838
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "yalanci_lino_3-0-0_15": {
+    "title": "3×3 yalancı lino + 3-0-0 (12 diş/cm)",
+    "shrinkPct": 15,
+    "loomWarpDensity": 12,
+    "Dw": 14.117647058823529,
+    "Df": 14.117647058823529,
+    "openPctLoom": 54.73109567901235,
+    "openPct": 48.108841709217955,
+    "poreMm": [
+      1.4543137842478049,
+      0.5451160890021418
+    ],
+    "groupWidthMm": [
+      0.6706862157521952,
+      0.22356207191739844
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "yalanci_lino_1li_0": {
+    "title": "3×3 yalancı lino + 1'li düz (12 diş/cm)",
+    "shrinkPct": 0,
+    "loomWarpDensity": 12,
+    "Dw": 12,
+    "Df": 12,
+    "openPctLoom": 52.62519290123457,
+    "openPct": 52.62519290123457,
+    "poreMm": [
+      0.609771261415935,
+      0.6097712614159354
+    ],
+    "groupWidthMm": [
+      0.22356207191739838,
+      0.22356207191739833
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "yalanci_lino_1li_8": {
+    "title": "3×3 yalancı lino + 1'li düz (12 diş/cm)",
+    "shrinkPct": 8,
+    "loomWarpDensity": 12,
+    "Dw": 13.043478260869565,
+    "Df": 13.043478260869565,
+    "openPctLoom": 52.62519290123457,
+    "openPct": 49.3796361355943,
+    "poreMm": [
+      0.5752885027952455,
+      0.5752885027952455
+    ],
+    "groupWidthMm": [
+      0.22356207191739838,
+      0.22356207191739838
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  },
+  "yalanci_lino_1li_15": {
+    "title": "3×3 yalancı lino + 1'li düz (12 diş/cm)",
+    "shrinkPct": 15,
+    "loomWarpDensity": 12,
+    "Dw": 14.117647058823529,
+    "Df": 14.117647058823529,
+    "openPctLoom": 52.62519290123457,
+    "openPct": 45.95753829615695,
+    "poreMm": [
+      0.5451160890021418,
+      0.5451160890021418
+    ],
+    "groupWidthMm": [
+      0.22356207191739852,
+      0.22356207191739844
+    ],
+    "feasible": true,
+    "misalignedWarps": 0,
+    "warnings": []
+  }
+}

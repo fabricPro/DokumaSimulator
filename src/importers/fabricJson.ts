@@ -2,7 +2,7 @@
  * FabricSpec JSON içe/dışa aktarma. v2 (slotlu) doğrudan okunur; v1 (renk dizili) JSON'lar
  * geriye uyumlu olarak v2'ye çevrilir.
  */
-import { MAX_SLOTS, SLOT_NAMES, normalizeSystem, type FabricSpec, type YarnSlot, type YarnSystem } from '../render-engine';
+import { MAX_SLOTS, SLOT_NAMES, normalizeReedSpec, normalizeSystem, parseDenting, type FabricSpec, type YarnSlot, type YarnSystem } from '../render-engine';
 import { colorsToSlots } from './slots';
 
 export interface ParsedFabric {
@@ -85,7 +85,25 @@ export function validateSpecV2(raw: any): FabricSpec {
     warpShrinkPct: pct(raw.warpShrinkPct, 'warpShrinkPct'),
     weftShrinkPct: pct(raw.weftShrinkPct, 'weftShrinkPct'),
     warpCrimpShare: share,
+    ...checkReed(raw.reed),
+    ...(raw.relax && typeof raw.relax === 'object'
+      ? { relax: { ...(raw.relax.c > 0 ? { c: raw.relax.c } : {}), ...(raw.relax.rho >= 1 ? { rho: raw.relax.rho } : {}) } }
+      : {}),
   };
+}
+
+/** Tarak alanı: yoksa tarak yok; eski { densityPerCm, denting } biçimi yeniye çevrilir. */
+function checkReed(raw: unknown): { reed?: FabricSpec['reed'] } {
+  if (raw === undefined || raw === null) return {};
+  const reed = normalizeReedSpec(raw);
+  if (!reed) throw new Error('reed alanı tanınmadı: { reedNumber, dentingReport } bekleniyor.');
+  if (!(reed.reedNumber > 0)) throw new Error('reed.reedNumber pozitif olmalı.');
+  const check = parseDenting(reed.dentingReport.join('-'));
+  if (!check.ok) throw new Error('reed.dentingReport geçersiz: ' + check.error);
+  if (reed.wireRatio !== undefined && !(reed.wireRatio >= 0 && reed.wireRatio < 0.95)) {
+    throw new Error('reed.wireRatio 0–0.95 arası olmalı.');
+  }
+  return { reed };
 }
 
 /** v1 JSON (warpColors/weftColors, warpYarn/weftYarn, warpDensity/weftDensity) → v2. */

@@ -1,16 +1,19 @@
 /**
- * Fiziksel ölçekli heightfield render — reference/weave_phys.py `simulate()` birebir karşılığı.
+ * Fiziksel ölçekli heightfield render — reference/weave_phys.py `simulate()` karşılığı.
+ * Konumlar tarak + çekme yay modelinden (shrinkDistribution.ts), sıkışma kesiti Love (1954)
+ * racetrack'i ile; %0 çekme ve sıkışmasız durumda referansla piksel olarak aynıdır.
  *
- * Koordinatlar mm; ölçek px/mm. Her iplik kendi çapında, kendi konumunda, kendi sıkışma ölçeği ve
+ * Koordinatlar mm; ölçek px/mm. Her iplik kendi çapında, kendi konumunda, kendi kesitiyle ve
  * büküm aralığıyla (1.5·r) çizilir. Geçişler (ileride WebGL'e ayrı ayrı taşınabilir):
  *   fields → lighting → shadow → occlusion → composite (+ ölçek çubuğu).
  */
 import { gaussianBlur } from '../heightfield/gaussian';
 import { pmod } from '../heightfield/wave';
 import type { FabricSpec, RgbaImage } from '../types';
-import { UniformPositionGenerator, type PositionGenerator } from './positions';
+import type { PositionGenerator } from './positions';
 import { finishedDensities } from './shrinkage';
-import { squeeze } from './squeeze';
+import { buildFabricPositions, type FabricPositions } from './shrinkDistribution';
+import { MIN_SQUEEZE } from './squeeze';
 import { createPhysicalRandom, type PhysicalRandomSource } from './random';
 import { slotIndices, slotTable } from './yarns';
 
@@ -28,7 +31,9 @@ export interface SimulateOptions {
   seed?: number;
   /** 1 mm ölçek çubuğu (sol alt). Varsayılan true. */
   scaleBar?: boolean;
-  /** Konum üreticileri (varsayılan: mamul sıklıkla düzgün). Tarak üreticisi buraya takılacak. */
+  /** Hazır hesaplanmış konumlar (verilmezse spec'ten tarak + yay modeliyle üretilir). */
+  positions?: FabricPositions;
+  /** Konum üreticilerini doğrudan ezmek için (test/deney). */
   warpPositions?: PositionGenerator;
   weftPositions?: PositionGenerator;
 }
@@ -40,7 +45,7 @@ export interface SimulateResult {
   /** Mamul sıklıklar. */
   Dw: number;
   Df: number;
-  /** Squeeze "sıkıştı" işaretleri. */
+  /** "Sıkıştı": penceredeki bir komşu aralığı 0.55·(r+r)'nin altında. */
   jammedWarp: boolean;
   jammedWeft: boolean;
   /** Penceredeki ipliklerin slot indeksleri (referansla aynı metrik ortalaması için). */
@@ -111,14 +116,15 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
   const ppm = view.pxPerMm;
   const rnd = opts.random ?? createPhysicalRandom(opts.seed ?? 3);
 
+  const fabric = opts.warpPositions && opts.weftPositions ? null : (opts.positions ?? buildFabricPositions(spec));
   const { warp: Dw, weft: Df } = finishedDensities(
-    spec.warpDensityLoom,
+    fabric?.reedDensity ?? spec.warpDensityLoom,
     spec.weftDensityLoom,
     spec.warpShrinkPct,
     spec.weftShrinkPct,
   );
-  const wPos = opts.warpPositions ?? new UniformPositionGenerator(Dw);
-  const fPos = opts.weftPositions ?? new UniformPositionGenerator(Df);
+  const wPos = opts.warpPositions ?? fabric!.warp.finished;
+  const fPos = opts.weftPositions ?? fabric!.weft.finished;
 
   // --- iplikler (pencere + kenarlarda taşan) ---
   const wr = wPos.indexRange(view.x0Mm, view.x0Mm + view.widthMm);
@@ -135,8 +141,8 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
   const rf = new Float64Array(nF);
   for (let k = 0; k < nW; k++) rw[k] = wt.diameter[wi[k]] / 2;
   for (let k = 0; k < nF; k++) rf[k] = ft.diameter[fi[k]] / 2;
-  const sqW = squeeze(xc, rw);
-  const sqF = squeeze(yc, rf);
+  const rtW = racetrack(xc, rw);
+  const rtF = racetrack(yc, rf);
 
   const phw = new Float64Array(nW);
   const tw = new Float64Array(nW);
@@ -187,11 +193,11 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
     const jRow = pmod(gF, Rr) * Rc;
     const row0 = pmod(fr.first + k0, Rr) * Rc;
     const row1 = pmod(fr.first + k0 + 1, Rr) * Rc;
-    const sF = sqF.width[j];
-    const hF = sqF.height[j];
     const rfj = rf[j];
-    const aF = rfj * sF;
-    const bF = rfj * hF;
+    const aFL = rtF.aLow[j];
+    const aFH = rtF.aHigh[j];
+    const aFM = (aFL + aFH) / 2;
+    const bF = rtF.b[j];
     const slotF = fi[j];
     const twF = ft.twistSign[slotF];
     const colF = ft.rgb[slotF];
@@ -206,8 +212,19 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
       const dx = X - (xc[i] + WOBBLE * Math.sin(Y * 2.1 + phw[i]));
       const dy = Y - (yc[j] + WOBBLE * Math.sin(X * 2.3 + phf[j]));
       const rwi = rw[i];
-      const aW = rwi * sqW.width[i];
-      const bW = rwi * sqW.height[i];
+      // Racetrack: değilen taraftan yassılma; o atkıda komşu da aynı durumdaysa (flotte yan yana)
+      // tam, değilse yarı yassılma.
+      const upW = flat(M, Rc, jRow + icol);
+      const nbW = dx < 0 ? flat(M, Rc, jRow + pmod(gW - 1, Rc)) : flat(M, Rc, jRow + pmod(gW + 1, Rc));
+      const aWraw = dx < 0 ? rtW.aLow[i] : rtW.aHigh[i];
+      const aW = rwi - (rwi - aWraw) * (nbW === upW ? 1 : 0.5);
+      const aWM = (rtW.aLow[i] + rtW.aHigh[i]) / 2;
+      const bW = rtW.b[i];
+      // Atkı: alt/üst komşu atkıyla aynı sütunda aynı durumda mı
+      const upF = !upW;
+      const nbF = dy < 0 ? !flat(M, Rc, pmod(gF - 1, Rr) * Rc + icol) : !flat(M, Rc, pmod(gF + 1, Rr) * Rc + icol);
+      const aFraw = dy < 0 ? aFL : aFH;
+      const aF = rfj - (rfj - aFraw) * (nbF === upF ? 1 : 0.5);
 
       const D = rwi + rfj;
       const s0 = flat(M, Rc, row0 + icol) ? 1 : -1;
@@ -230,8 +247,8 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
 
       const covW = Math.abs(dx) < aW;
       const covF = Math.abs(dy) < aF;
-      const HwV = covW ? waveW + prof(dx, aW, bW) + 0.42 * rwi * plyW + 0.02 * rwi * fnW : -1e3;
-      const HfV = covF ? waveF + prof(dy, aF, bF) + 0.42 * rfj * plyF + 0.02 * rfj * fnF : -1e3;
+      const HwV = covW ? waveW + prof(dx, aW, aWM, bW) + 0.42 * rwi * plyW + 0.02 * rwi * fnW : -1e3;
+      const HfV = covF ? waveF + prof(dy, aF, aFM, bF) + 0.42 * rfj * plyF + 0.02 * rfj * fnF : -1e3;
       const topW = HwV >= HfV;
       const h = Math.max(HwV, HfV, bg);
       Hm[o] = h;
@@ -348,8 +365,8 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
     openPct: (100 * bgCount) / N,
     Dw,
     Df,
-    jammedWarp: sqW.anyJammed,
-    jammedWeft: sqF.anyJammed,
+    jammedWarp: rtW.jammed,
+    jammedWeft: rtF.jammed,
     warpSlotsUsed: wi,
     weftSlotsUsed: fi,
   };
@@ -359,9 +376,57 @@ function flat(M: boolean[][], Rc: number, idx: number): boolean {
   return M[(idx / Rc) | 0][idx % Rc];
 }
 
-function prof(d: number, a: number, b: number): number {
-  const u = Math.min(Math.abs(d) / a, 1);
-  return 0.6 * b * Math.sqrt(1 - u * u);
+/**
+ * Racetrack kesit profili (Love 1954; dikey düz kenarlı, alan korunur).
+ * aSide: o taraftaki yarı genişlik, aMean: ortalama yarı genişlik, b: yarı yükseklik.
+ * Sıkışma yoksa (a = b = r) referansın 0.6·r·√(1−u²) profiline eşittir.
+ */
+function prof(d: number, aSide: number, aMean: number, b: number): number {
+  const u = Math.min(Math.abs(d) / aSide, 1);
+  return 0.6 * (b - aMean + aMean * Math.sqrt(1 - u * u));
+}
+
+export interface RacetrackSet {
+  /** Alt/sol taraf yarı genişliği (komşu k−1 yönü). */
+  aLow: Float64Array;
+  /** Üst/sağ taraf yarı genişliği (komşu k+1 yönü). */
+  aHigh: Float64Array;
+  /** Alan korunumundan yarı yükseklik. */
+  b: Float64Array;
+  jammed: boolean;
+}
+
+/**
+ * Komşu aralığı yarıçap oranında paylaştırılır; ipliğin o taraftaki yarı genişliği bu payla sınırlanır.
+ * Kesit alanı korunur: πa² + 4a(b − a) = πr² (a = ortalama yarı genişlik) → b.
+ */
+export function racetrack(centers: Float64Array, radii: Float64Array): RacetrackSet {
+  const n = centers.length;
+  const aLow = new Float64Array(n);
+  const aHigh = new Float64Array(n);
+  const b = new Float64Array(n);
+  let jammed = false;
+  for (let k = 0; k < n; k++) {
+    aLow[k] = radii[k];
+    aHigh[k] = radii[k];
+  }
+  for (let k = 0; k < n - 1; k++) {
+    const gap = centers[k + 1] - centers[k];
+    const need = radii[k] + radii[k + 1];
+    if (gap < MIN_SQUEEZE * need) jammed = true;
+    if (gap < need) {
+      aHigh[k] = Math.min(aHigh[k], (gap * radii[k]) / need);
+      aLow[k + 1] = Math.min(aLow[k + 1], (gap * radii[k + 1]) / need);
+    }
+  }
+  for (let k = 0; k < n; k++) b[k] = racetrackHalfHeight(radii[k], (aLow[k] + aHigh[k]) / 2);
+  return { aLow, aHigh, b, jammed };
+}
+
+/** πa² + 4a(b − a) = πr² → b = a + π(r² − a²)/(4a). */
+export function racetrackHalfHeight(r: number, a: number): number {
+  if (a >= r) return r;
+  return a + (Math.PI * (r * r - a * a)) / (4 * a);
 }
 
 function ply(u: number, v: number, r: number): number {

@@ -170,3 +170,34 @@ button.icon { padding: 0; width: 22px; height: 22px; line-height: 1; }
   .editor-col, .sidebar { max-height: none; overflow: visible; border-right: none; }
   .panes.compare { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
 }
+
+/* ---------- v2.1: tarak, karşılaştırma, şeritler ---------- */
+.reed { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); }
+.check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.dents { display: flex; flex-wrap: wrap; gap: 2px; }
+.dent { min-width: 18px; height: 22px; display: grid; place-items: center; border: 1px solid #5c6470; border-radius: 3px; color: var(--accent); font-weight: 700; letter-spacing: -1px; }
+.dent.empty { border-style: dashed; opacity: 0.6; }
+.warn-text { color: #ffd666; }
+button.link { background: none; border: none; color: var(--muted); padding: 0; align-self: flex-start; }
+button.link:hover { color: var(--text); }
+
+/* ---------- tarak paneli ---------- */
+.seq-text.invalid { border-color: #c0392b; }
+.inline-error { color: #ff8a80; font-size: 11.5px; }
+.dent-strip { display: flex; flex-wrap: wrap; gap: 3px; align-items: stretch; }
+.dent-btn { width: 26px; height: 42px; padding: 2px 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; border: 2px solid #6b7480; border-top-color: #aab2bd; border-bottom-color: #aab2bd; border-radius: 3px; background: #1a1d21; user-select: none; touch-action: none; }
+.dent-btn.empty { background: repeating-linear-gradient(45deg, #1a1d21 0 4px, #2a2f36 4px 6px); }
+.dent-btn b { font-size: 10px; color: var(--muted); font-weight: 600; }
+.dent-ends { display: flex; gap: 1px; height: 18px; align-items: center; }
+.dent-ends i { display: block; width: 3px; height: 16px; border-radius: 2px; background: var(--accent); }
+.dent-add { width: 22px; height: 42px; padding: 0; }
+.templates { display: flex; flex-wrap: wrap; gap: 4px; }
+.templates button { font-size: 11.5px; padding: 2px 6px; }
+.derived-card { display: flex; flex-direction: column; gap: 3px; background: #1a1d21; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.derived-card div { display: flex; justify-content: space-between; gap: 8px; }
+.derived-card span { color: var(--muted); font-size: 11.5px; }
+.derived-card b { font-weight: 600; font-variant-numeric: tabular-nums; font-size: 12px; }
+.derived-card p { margin: 2px 0 0; font-size: 11.5px; }
+.repeat-card { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.repeat-card b { color: var(--text); font-variant-numeric: tabular-nums; }
+.repeat-card .lcm b { color: var(--accent); }

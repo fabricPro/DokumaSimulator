@@ -3,7 +3,12 @@
 Kullanım: python -I scripts/compare_phys.py <ref klasörü> <ts klasörü> [yan-yana klasörü] [--mask-label]
   Piksel farkında "1 mm" yazısı bölgesi (sol alt) her zaman maskelenir; --mask-label ile sol üst
   etiket kutusu da maskelenir (seed'li etiketli çıktılar için).
-Metrikler: her biri için göreli fark %; ±%1 dışı olan 'FAIL' işaretlenir.
+Metrikler: her biri için göreli fark %; ±%1 dışı olan '!' işaretlenir.
+
+v2.1 sonrası beklenen farklar (SONUÇ'u etkilemez, 'B' ile işaretlenir):
+  - jam_w / jam_f: Ashenhurst eksen düzeltmesi (referans eksenleri ters sayıyordu).
+  - mamul_* durumları: çekme artık yay modeliyle dağıtılıyor (iplikler gruplaşır); piksel ve
+    pencere-ortalamalı metrikler bilinçli olarak farklı. Sıkı kontrol yalnız 'tezgah' durumunda.
 """
 import json
 import os
@@ -35,7 +40,11 @@ for name in names:
     if mask_label:
         m[0:100, 0:475] = False          # etiket kutusu
     d = np.abs(a - b).max(axis=2)[m]
-    print(f'{name:13s} ortalama={d.mean():.3f}  max={d.max():3d}  >2 seviye: %{(d > 2).mean() * 100:.3f}')
+    strict = name == 'tezgah'
+    tag = '' if strict else '  (B: yay modeli, beklenen fark)'
+    print(f'{name:13s} ortalama={d.mean():.3f}  max={d.max():3d}  >2 seviye: %{(d > 2).mean() * 100:.3f}{tag}')
+    if strict and not mask_label and d.max() > 2:
+        ok = False
     if side_dir:
         canvas = Image.new('RGB', (w * 2 + 16, h), (255, 255, 255))
         canvas.paste(Image.fromarray(a.astype(np.uint8)), (0, 0))
@@ -55,12 +64,13 @@ if os.path.exists(ref_m_path) and os.path.exists(ts_m_path):
         for k in keys:
             r, t = rm[name][k], tm[name][k]
             rel = abs(t - r) / abs(r) * 100 if r else abs(t - r)
-            flag = '' if rel <= 1.0 else '!'
-            if rel > 1.0:
+            expected = k in ('jam_w', 'jam_f') or name != 'tezgah'
+            flag = '' if rel <= 1.0 else ('B' if expected else '!')
+            if rel > 1.0 and not expected:
                 ok = False
             cells.append(f'{t:7.2f}/{r:7.2f}{flag:1s}')
-        jam = 'ok' if rm[name]['jammed'] == tm[name]['jammed'] else 'FARK'
-        if jam != 'ok':
+        jam = 'ok' if rm[name]['jammed'] == tm[name]['jammed'] else ('B' if name != 'tezgah' else 'FARK')
+        if jam == 'FARK':
             ok = False
         print(f'{name:13s} ' + ' '.join(f'{c:>16s}' for c in cells) + f'  {jam}')
-print('SONUÇ:', 'EŞLEŞİYOR (metrikler ±%1 içinde)' if ok else 'FARK VAR')
+print('SONUÇ:', 'EŞLEŞİYOR (tezgah piksel + metrikler ±%1; B = beklenen fark)' if ok else 'BEKLENMEYEN FARK VAR')

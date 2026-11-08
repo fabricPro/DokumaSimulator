@@ -49,12 +49,35 @@ export function dobbyFancy(): boolean[][] {
   return rows.reverse().map((r) => r.split('').map((c) => c === '1'));
 }
 
+/**
+ * 3×3 yalancı lino (imitation gauze, mock leno), 6×6 rapor.
+ * Kaynak: 3×3 birim ve onun tersiyle kurulan 6 çözgü × 6 atkı rapor — INFLIBNET e-PG Pathshala
+ * "Fancy weaves" (Grosicki, Watson's Textile Design and Colour'a dayanır); Hayavadana, Woven Fabric
+ * Structure Design, "Mock leno and distorted effects"; US10023981B2 (imitation gauze: gruplar halinde
+ * düzenlenen iplikler, bezayağı çalışan iplikler yüzde/arkada flotte yapanlarla dönüşümlü).
+ * Birim (çözgü 1–3, atkı 1–3): uç çözgüler 3 atkı boyunca üstte flotte, orta çözgü bezayağı.
+ * Grup sınırında (çözgü 3–4, atkı 3–4) iplikler her yerde ters bağlanır → birleşemez, açıklık oluşur.
+ * Matris satır 0 = 1. atkı (en altta).
+ */
+export function mockLeno3(): boolean[][] {
+  const rows = [
+    'XXX...', // atkı 1
+    'X.X.X.', // atkı 2
+    'XXX...', // atkı 3
+    '...XXX', // atkı 4
+    '.X.X.X', // atkı 5
+    '...XXX', // atkı 6
+  ];
+  return rows.map((r) => r.split('').map((c) => c === 'X'));
+}
+
 export const WEAVE_PRESETS: WeavePreset[] = [
   { id: 'plain', name: 'Bezayağı', weave: plain() },
   { id: 'twill22', name: '2/2 Dimi', weave: twill22() },
   { id: 'twill31', name: '3/1 Dimi', weave: twill31() },
   { id: 'satin5', name: "5'li Saten", weave: satin5() },
   { id: 'panama', name: 'Panama', weave: hopsack() },
+  { id: 'mockleno3', name: '3×3 Yalancı lino', weave: mockLeno3() },
   { id: 'dobby', name: 'Armür motifi', weave: dobbyFancy() },
 ];
 

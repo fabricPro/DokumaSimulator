@@ -1,0 +1,54 @@
+{
+  "name": "ÖRNEK-3 (3×3 yalancı lino, tarak 3-0-0)",
+  "example": true,
+  "note": "ÖRNEK KAYIT — ölçümler uydurmadır. Gerçek numune verisiyle değiştirin.",
+  "weavePreset": "mockleno3",
+  "warpSlots": [
+    {
+      "count": 300,
+      "system": "Denier",
+      "color": "#e8e6e1"
+    }
+  ],
+  "warpSequence": [
+    "A"
+  ],
+  "weftSlots": [
+    {
+      "count": 300,
+      "system": "Denier",
+      "color": "#4a5058"
+    }
+  ],
+  "weftSequence": [
+    "A"
+  ],
+  "warpDensityLoom": 13,
+  "weftDensityLoom": 13,
+  "reed": {
+    "reedNumber": 13,
+    "reedUnit": "diş/cm",
+    "dentingReport": [
+      3,
+      0,
+      0
+    ]
+  },
+  "photo": {
+    "path": "calibration/photos/ornek-3.jpg",
+    "pxPerMm": 120
+  },
+  "measured": {
+    "warpDensity": 15.2,
+    "weftDensity": 15.1,
+    "warpShrinkPct": 14,
+    "weftShrinkPct": 14.5,
+    "gsm": 118,
+    "openPct": 41,
+    "groupWidthMm": 0.66,
+    "poreSizeMm": [
+      1.25,
+      0.45
+    ]
+  }
+}

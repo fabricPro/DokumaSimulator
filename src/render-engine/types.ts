@@ -1,3 +1,5 @@
+import type { ReedSpec } from './reed/types';
+
 /**
  * Render motorunun genel tipleri.
  * Bu modül React'e, DOM'a veya global state'e bağımlı değildir.
@@ -51,6 +53,10 @@ export interface FabricSpec {
   weftShrinkPct: number;
   /** Kıvrımın çözgüye düşen payı (Peirce h1/(h1+h2)), varsayılan 0.4. */
   warpCrimpShare: number;
+  /** Tarak (opsiyonel). Verilirse tezgah çözgü konumları ve sıklığı taraktan türetilir. */
+  reed?: ReedSpec;
+  /** Çekme yay modeli: c = racetrack sıkışma katsayısı (0.85), rho = bağlantılı/bağlantısız sertlik oranı (8). */
+  relax?: { c?: number; rho?: number };
 }
 
 /** v1 FabricSpec (eski JSON'lar; yalnız geriye uyumlu okuma için). */

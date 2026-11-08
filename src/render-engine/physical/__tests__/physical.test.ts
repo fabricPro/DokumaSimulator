@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { diameterMm, normalizeSystem, toTex } from '../yarnPhysics';
 import { UniformPositionGenerator } from '../positions';
 import { finishedDensities } from '../shrinkage';
-import { ashenhurstMax, interlacing, squeeze } from '../squeeze';
-import { computeMetrics, jamLevel, squeezeCheck } from '../metrics';
+import { alongYarnInterlacing, ashenhurstMax, lateralInterlacing } from '../squeeze';
+import { computeMetrics, jamLevel, structureMetrics } from '../metrics';
+import { racetrack, racetrackHalfHeight } from '../simulate';
 import { simulatePhysical } from '../simulate';
 import { constantPhysicalRandom } from '../random';
 import { plain, satin5, twill22, twill31 } from '../../../presets/weaves';
@@ -58,41 +59,57 @@ describe('konum üretici', () => {
   });
 });
 
-describe('squeeze', () => {
-  it('çakışmayan iplikler değişmez', () => {
-    const r = squeeze([0, 1, 2], [0.2, 0.2, 0.2]);
-    expect(Array.from(r.width)).toEqual([1, 1, 1]);
-    expect(r.anyJammed).toBe(false);
+describe('racetrack kesit (Love 1954)', () => {
+  it('çakışmayan iplikler değişmez: yarı genişlik = yarı yükseklik = r', () => {
+    const rt = racetrack(new Float64Array([0, 1, 2]), new Float64Array([0.2, 0.2, 0.2]));
+    expect(Array.from(rt.aLow)).toEqual([0.2, 0.2, 0.2]);
+    expect(Array.from(rt.b)).toEqual([0.2, 0.2, 0.2]);
+    expect(rt.jammed).toBe(false);
   });
-  it('çakışan komşular gap/need oranında daralır, yükseklik s^-0.5', () => {
-    const r = squeeze([0, 0.8], [0.5, 0.5]); // need 1.0, gap 0.8 → s = 0.8
-    expect(r.width[0]).toBeCloseTo(0.8, 12);
-    expect(r.width[1]).toBeCloseTo(0.8, 12);
-    expect(r.height[0]).toBeCloseTo(0.8 ** -0.5, 12);
-    expect(r.anyJammed).toBe(false);
+  it('değen tarafta yassılır, kesit alanı korunur', () => {
+    const rt = racetrack(new Float64Array([0, 0.8]), new Float64Array([0.5, 0.5]));
+    expect(rt.aHigh[0]).toBeCloseTo(0.4, 12); // aralık yarıçap oranında paylaşılır
+    expect(rt.aLow[0]).toBe(0.5); // değmeyen taraf aynı
+    const a = (rt.aLow[0] + rt.aHigh[0]) / 2;
+    const area = Math.PI * a * a + 4 * a * (rt.b[0] - a);
+    expect(area).toBeCloseTo(Math.PI * 0.25, 10);
+    expect(rt.b[0]).toBeGreaterThan(0.5); // genişlik azalınca yükseklik artar
   });
-  it('alt sınır 0.55; altına inen "sıkıştı" işaretlenir', () => {
-    const r = squeeze([0, 0.5, 2], [0.5, 0.5, 0.1]); // s = 0.5 < 0.55
-    expect(r.width[0]).toBe(0.55);
-    expect(r.width[1]).toBe(0.55);
-    expect(r.width[2]).toBe(1);
-    expect(Array.from(r.jammed)).toEqual([1, 1, 0]);
-    expect(r.anyJammed).toBe(true);
+  it('0.55·(r+r) altındaki aralık "sıkıştı"', () => {
+    expect(racetrack(new Float64Array([0, 0.5]), new Float64Array([0.5, 0.5])).jammed).toBe(true);
+    expect(racetrackHalfHeight(0.3, 0.3)).toBe(0.3);
   });
 });
 
 describe('Ashenhurst E/I', () => {
   it('bezayağı E=2 I=2, 3/1 dimi E=4 I=2', () => {
-    expect(interlacing(plain(), 'warp')).toEqual({ E: 2, I: 2 });
-    expect(interlacing(plain(), 'weft')).toEqual({ E: 2, I: 2 });
-    expect(interlacing(twill31(), 'warp')).toEqual({ E: 4, I: 2 });
-    expect(interlacing(twill31(), 'weft')).toEqual({ E: 4, I: 2 });
-    expect(interlacing(twill22(), 'warp')).toEqual({ E: 4, I: 2 });
-    expect(interlacing(satin5(), 'warp')).toEqual({ E: 5, I: 2 });
+    for (const ax of ['warp', 'weft'] as const) {
+      expect(lateralInterlacing(plain(), ax)).toEqual({ E: 2, I: 2 });
+      expect(lateralInterlacing(twill31(), ax)).toEqual({ E: 4, I: 2 });
+      expect(lateralInterlacing(twill22(), ax)).toEqual({ E: 4, I: 2 });
+      expect(lateralInterlacing(satin5(), ax)).toEqual({ E: 5, I: 2 });
+      // Kıvrım için iplik boyunca bağlantı da simetrik örgülerde aynı
+      expect(alongYarnInterlacing(twill31(), ax)).toEqual({ E: 4, I: 2 });
+    }
   });
   it('max = 10/d · E/(E+I)', () => {
     expect(ashenhurstMax(plain(), 'warp', 0.2).max).toBeCloseTo(50 * (2 / 4), 12);
     expect(ashenhurstMax(twill31(), 'weft', 0.25).max).toBeCloseTo(40 * (4 / 6), 12);
+  });
+  it('eksenler ters sayılmaz: çözgü sıklığı için I = atkı boyunca geçiş sayısı', () => {
+    // 2 çözgü × 4 atkı, satırlar: [T,F],[T,F],[F,T],[F,T] → her atkıda çözgüler farklı (I_çözgü = 2/rapor)
+    const M = [
+      [true, false],
+      [true, false],
+      [false, true],
+      [false, true],
+    ];
+    const w = lateralInterlacing(M, 'warp');
+    expect(w).toEqual({ E: 2, I: 2 }); // E = rapordaki çözgü sayısı
+    const f = lateralInterlacing(M, 'weft');
+    expect(f).toEqual({ E: 4, I: 2 }); // atkı 1–2 ve 3–4 aynı, 2–3 ve 4–1 farklı
+    // Eski (ters) tanım çözgü için E=4 I=2 verirdi
+    expect(alongYarnInterlacing(M, 'warp')).toEqual({ E: 4, I: 2 });
   });
   it('uyarı seviyeleri kesin sınır değil: >100 sarı, >115 kırmızı', () => {
     expect(jamLevel(99)).toBe('ok');
@@ -144,18 +161,24 @@ describe('metrikler', () => {
     const big = simulatePhysical(s, { x0Mm: 0, y0Mm: 0, widthMm: 8, heightMm: 8, pxPerMm: 4 }, { random: constantPhysicalRandom() });
     const m = computeMetrics(s, { warpSlotsUsed: big.warpSlotsUsed, weftSlotsUsed: big.weftSlotsUsed });
     expect(m.cover).toBeCloseTo(75.05, 1);
-    expect(m.jamWarp).toBeCloseTo(91.54, 1);
-    expect(m.jamWeft).toBeCloseTo(84.13, 1);
+    // Sıkışma oranı referanstan bilinçli olarak farklı (eksen düzeltmesi): referans 91.54 / 84.13
+    expect(m.jamWarp).toBeCloseTo(81.29, 1);
+    expect(m.jamWeft).toBeCloseTo(94.73, 1);
     expect(m.gsm).toBeCloseTo(194.96, 1);
     expect(res.image.width).toBe(40);
   });
 
-  it('squeezeCheck: aşırı sıklıkta "sıkıştı"', () => {
-    expect(squeezeCheck(spec).jammedWarp).toBe(false);
+  it('structureMetrics: tezgahta iplik sığmıyorsa "sıkıştı", ulaşılamaz çekmede uyarı', () => {
+    expect(structureMetrics(spec).jammedWarp).toBe(false);
     const dense = { ...spec, warpDensityLoom: 120 };
-    const c = squeezeCheck(dense);
-    expect(c.jammedWarp).toBe(true);
-    expect(c.minScaleWarp).toBeLessThan(0.55);
+    expect(structureMetrics(dense).jammedWarp).toBe(true);
+    const over = { ...spec, warpDensityLoom: 30, weftShrinkPct: 60 };
+    const st = structureMetrics(over);
+    expect(st.feasible).toBe(false);
+    expect(st.warnings.join(' ')).toMatch(/mümkün değil/);
+  });
+  it('kıvrım payı 1.00 uyarısı', () => {
+    expect(structureMetrics({ ...spec, warpCrimpShare: 1 }).warnings.join(' ')).toMatch(/atkı kıvrımı sıfır/);
   });
 });
 

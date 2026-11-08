@@ -1,8 +1,11 @@
 import { useState, type ReactNode } from 'react';
+import { ReedPanel } from './ReedPanel';
 import {
+  DEFAULT_RELAX,
   MAX_SLOTS,
   SLOT_NAMES,
   diameterMm,
+  effectiveLoomWarpDensity,
   finishedDensities,
   toTex,
   type FabricSpec,
@@ -289,20 +292,58 @@ export function YarnPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: 
 
 export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: FabricSpec) => void }) {
   const set = <K extends keyof FabricSpec>(k: K, v: FabricSpec[K]) => onChange({ ...spec, [k]: v });
-  const fin = finishedDensities(spec.warpDensityLoom, spec.weftDensityLoom, spec.warpShrinkPct, spec.weftShrinkPct);
+  const loomWarp = effectiveLoomWarpDensity(spec);
+  const fin = finishedDensities(loomWarp, spec.weftDensityLoom, spec.warpShrinkPct, spec.weftShrinkPct);
+  const relax = { ...DEFAULT_RELAX, ...(spec.relax ?? {}) };
+  const [adv, setAdv] = useState(false);
   return (
     <section className="panel">
       <h3>Kumaş</h3>
       <div className="grid2">
-        <NumberField label="Tezgah çözgü sıklığı" suffix="tel/cm" value={spec.warpDensityLoom} step={0.5} min={1} onChange={(v) => set('warpDensityLoom', v)} />
+        {spec.reed ? (
+          <label className="numfield" title="Tarak girildiği için sıklık taraktan türetiliyor">
+            <span>Tezgah çözgü sıklığı (taraktan)</span>
+            <span className="numfield-input">
+              <input type="number" value={+loomWarp.toFixed(2)} disabled />
+              <em>tel/cm</em>
+            </span>
+          </label>
+        ) : (
+          <NumberField label="Tezgah çözgü sıklığı" suffix="tel/cm" value={spec.warpDensityLoom} step={0.5} min={1} onChange={(v) => set('warpDensityLoom', v)} />
+        )}
         <NumberField label="Tezgah atkı sıklığı" suffix="atkı/cm" value={spec.weftDensityLoom} step={0.5} min={1} onChange={(v) => set('weftDensityLoom', v)} />
       </div>
-      <Slider label="Çözgü çekmesi" value={spec.warpShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('warpShrinkPct', v)} format={(v) => `%${v}`} />
-      <Slider label="Atkı çekmesi" value={spec.weftShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('weftShrinkPct', v)} format={(v) => `%${v}`} />
+      <ReedPanel spec={spec} onChange={onChange} />
+      <Slider label="Çözgü çekmesi (boy)" value={spec.warpShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('warpShrinkPct', v)} format={(v) => `%${v}`} />
+      <Slider label="Atkı çekmesi (en)" value={spec.weftShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('weftShrinkPct', v)} format={(v) => `%${v}`} />
       <Slider label="Kıvrım payı (çözgü)" value={spec.warpCrimpShare} min={0} max={1} step={0.01} onChange={(v) => set('warpCrimpShare', v)} format={(v) => v.toFixed(2)} />
       <p className="hint">
         Mamul: çözgü {fin.warp.toFixed(1)} tel/cm · atkı {fin.weft.toFixed(1)} atkı/cm
       </p>
+      <button className="link" onClick={() => setAdv(!adv)}>
+        {adv ? '▴' : '▾'} Çekme modeli (gelişmiş)
+      </button>
+      {adv && (
+        <div className="grid2">
+          <NumberField
+            label="Racetrack katsayısı c"
+            value={relax.c}
+            step={0.01}
+            min={0.3}
+            onChange={(v) => set('relax', { ...spec.relax, c: v })}
+          />
+          <NumberField
+            label="Sertlik oranı ρ"
+            value={relax.rho}
+            step={0.5}
+            min={1}
+            onChange={(v) => set('relax', { ...spec.relax, rho: v })}
+          />
+          <p className="hint" style={{ gridColumn: '1 / -1' }}>
+            En küçük aralık m = c·(r₁+r₂) + w·d_karşı; sertlik k = 1 + (ρ−1)·w. Kalibrasyonla ayarlanır.
+          </p>
+        </div>
+      )}
     </section>
   );
 }

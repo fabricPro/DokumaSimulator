@@ -3,10 +3,26 @@
   "example": true,
   "note": "ÖRNEK KAYIT — ölçümler uydurmadır. Gerçek numune verisiyle değiştirin.",
   "weavePreset": "twill31",
-  "warpSlots": [{ "count": 150, "system": "Denier", "color": "#203a5c" }],
-  "warpSequence": ["A"],
-  "weftSlots": [{ "count": 30, "system": "Ne", "color": "#e0d8c8" }],
-  "weftSequence": ["A"],
+  "warpSlots": [
+    {
+      "count": 150,
+      "system": "Denier",
+      "color": "#203a5c"
+    }
+  ],
+  "warpSequence": [
+    "A"
+  ],
+  "weftSlots": [
+    {
+      "count": 30,
+      "system": "Ne",
+      "color": "#e0d8c8"
+    }
+  ],
+  "weftSequence": [
+    "A"
+  ],
   "warpDensityLoom": 48,
   "weftDensityLoom": 26,
   "measured": {
@@ -14,6 +30,12 @@
     "weftDensity": 27.2,
     "warpShrinkPct": 4,
     "weftShrinkPct": 7,
-    "gsm": 172
+    "gsm": 172,
+    "openPct": 3.5,
+    "groupWidthMm": 1.2,
+    "poreSizeMm": [
+      0.06,
+      0.12
+    ]
   }
 }

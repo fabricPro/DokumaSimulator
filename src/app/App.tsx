@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { computeMetrics, squeezeCheck, type FabricSpec } from '../render-engine';
+import {
+  buildFabricPositions,
+  computeMetrics,
+  mapLoomToFinished,
+  lcm,
+  slotOf,
+  structureMetrics,
+  type FabricSpec,
+} from '../render-engine';
 import type { PhysicalInfo } from '../render-engine/worker';
 import { parseWif } from '../importers/wif';
 import { parseFabricJson, serializeFabricJson } from '../importers/fabricJson';
@@ -7,7 +15,7 @@ import { atkiJsonImporter } from '../importers/atkiJson';
 import { colorsToSlots } from '../importers/slots';
 import { physicalExample } from '../presets/physicalExample';
 import { FabricPanel, YarnPanel } from './Controls';
-import { FabricPane, MAX_PPM, MIN_PPM, type MmView } from './FabricPane';
+import { FabricPane, MAX_PPM, MIN_PPM, type MmView, type MmWindow, type ReedStripInfo } from './FabricPane';
 import { MetricsBar } from './MetricsBar';
 import { RenderClient, imageToCanvas } from './renderClient';
 import { WeaveEditor } from './WeaveEditor';
@@ -37,6 +45,9 @@ export function App() {
   const [spec, setSpec] = useState<FabricSpec>(() => physicalExample(6, 10));
   const [seed, setSeed] = useState(3);
   const [mode, setMode] = useState<'single' | 'compare'>('compare');
+  const [compareKind, setCompareKind] = useState<'sameYarns' | 'sameArea'>('sameYarns');
+  const [showStrips, setShowStrips] = useState(false);
+  const [showLinks, setShowLinks] = useState(true);
   const [view, setView] = useState<MmView>({ x0Mm: 0, y0Mm: 0, pxPerMm: 60 });
   const [paneSize, setPaneSize] = useState({ w: 0, h: 0 });
   const [info, setInfo] = useState<PhysicalInfo | null>(null);
@@ -56,13 +67,20 @@ export function App() {
       return null;
     }
   }, [spec]);
-  const sq = useMemo(() => {
+  const structure = useMemo(() => {
     try {
-      return squeezeCheck(spec);
+      return structureMetrics(spec);
     } catch {
       return null;
     }
   }, [spec]);
+  const positions = useMemo(() => {
+    try {
+      return buildFabricPositions(debSpec);
+    } catch {
+      return null;
+    }
+  }, [debSpec]);
 
   const onSize = useCallback((w: number, h: number) => setPaneSize({ w, h }), []);
   const setArea = useCallback(
@@ -76,6 +94,53 @@ export function App() {
     setArea(10);
   }, [paneSize.w, setArea]);
   const shownMm = (paneSize.w || 600) / view.pxPerMm;
+
+  // "Aynı iplikler": tezgah penceresindeki ipliklerin mamuldeki (daralmış) penceresi
+  const finishedWindow = useMemo<MmWindow | undefined>(() => {
+    if (mode !== 'compare' || compareKind !== 'sameYarns' || !positions || paneSize.w === 0) return undefined;
+    const x1 = view.x0Mm + paneSize.w / view.pxPerMm;
+    const y1 = view.y0Mm + paneSize.h / view.pxPerMm;
+    const fx0 = mapLoomToFinished(positions.warp, view.x0Mm);
+    const fy0 = mapLoomToFinished(positions.weft, view.y0Mm);
+    return {
+      x0Mm: fx0,
+      y0Mm: fy0,
+      widthMm: mapLoomToFinished(positions.warp, x1) - fx0,
+      heightMm: mapLoomToFinished(positions.weft, y1) - fy0,
+    };
+  }, [mode, compareKind, positions, view, paneSize]);
+
+  // Tarak şeridi (tezgah konumları) ve mamulde bağlantı çizgileri
+  const warpColorOf = useCallback(
+    (g: number) => debSpec.warpSlots[slotOf(debSpec.warpSequence, g, debSpec.warpSlots.length)]?.color ?? '#888',
+    [debSpec],
+  );
+  const loomStrip = useMemo<ReedStripInfo | undefined>(
+    () => (positions?.reed ? { reed: positions.reed, colorOf: warpColorOf } : undefined),
+    [positions, warpColorOf],
+  );
+  const finishedStrip = useMemo<ReedStripInfo | undefined>(() => {
+    if (!positions?.reed) return undefined;
+    return {
+      reed: positions.reed,
+      colorOf: warpColorOf,
+      finished: showLinks ? positions.warp.finished : undefined,
+      loomOriginX: view.x0Mm,
+    };
+  }, [positions, warpColorOf, showLinks, view.x0Mm]);
+
+  // Rapor tekrar uzunlukları (tel cinsinden)
+  const repeats = useMemo(() => {
+    const weave = spec.weave[0].length;
+    const seq = Math.max(1, spec.warpSequence.length);
+    const reedEnds = spec.reed ? spec.reed.dentingReport.reduce((a, b) => a + b, 0) : 0;
+    const reedDents = spec.reed ? spec.reed.dentingReport.length : 0;
+    let all = lcm(weave, seq);
+    if (reedEnds > 0) all = lcm(all, reedEnds);
+    const loomPitch = positions ? positions.warp.loom.meanPitchMm() : 10 / spec.warpDensityLoom;
+    const finPitch = positions ? positions.warp.finished.meanPitchMm() : loomPitch;
+    return { weave, seq, reedEnds, reedDents, all, loomMm: all * loomPitch, finMm: all * finPitch };
+  }, [spec, positions]);
 
   const onImport = async (file: File) => {
     try {
@@ -211,21 +276,69 @@ export function App() {
           <span className="muted">
             {shownMm.toFixed(1)} mm · {view.pxPerMm.toFixed(0)} px/mm
           </span>
+          {mode === 'compare' && (
+            <div className="seg">
+              <button className={compareKind === 'sameYarns' ? 'on' : ''} onClick={() => setCompareKind('sameYarns')}>
+                Aynı iplikler
+              </button>
+              <button className={compareKind === 'sameArea' ? 'on' : ''} onClick={() => setCompareKind('sameArea')}>
+                Aynı alan
+              </button>
+            </div>
+          )}
+          <label className="check">
+            <input type="checkbox" checked={showStrips} onChange={(e) => setShowStrips(e.target.checked)} />
+            Bağlantı şeritleri
+          </label>
+          {spec.reed && (
+            <label className="check">
+              <input type="checkbox" checked={showLinks} onChange={(e) => setShowLinks(e.target.checked)} />
+              Tarak → mamul çizgileri
+            </label>
+          )}
           <label className="seed">
             seed
             <input type="number" value={seed} onChange={(e) => setSeed(Math.floor(+e.target.value) || 0)} />
           </label>
         </div>
-        {metrics && sq && <MetricsBar metrics={metrics} squeeze={sq} openPct={info?.openPct ?? null} />}
+        {metrics && structure && <MetricsBar metrics={metrics} structure={structure} openPct={info?.openPct ?? null} />}
+        <div className="repeat-card" title="Desen ancak bu uzunlukta tam tekrar eder">
+          <span>Rapor tekrarları:</span>
+          {repeats.reedEnds > 0 && (
+            <span>
+              taraklama <b>{repeats.reedDents} diş / {repeats.reedEnds} tel</b>
+            </span>
+          )}
+          <span>
+            çözgü renk/iplik <b>{repeats.seq} tel</b>
+          </span>
+          <span>
+            örgü <b>{repeats.weave} tel</b>
+          </span>
+          <span className="lcm">
+            ortak (EKOK) <b>{repeats.all} tel</b> = {repeats.loomMm.toFixed(2)} mm tezgahta · {repeats.finMm.toFixed(2)} mm mamulde — desen ancak bu uzunlukta tam tekrar eder
+          </span>
+        </div>
         <div className={`panes ${mode}`}>
           {mode === 'compare' && (
-            <FabricPane spec={loomSpec} seed={seed} view={view} title="Tezgah" onViewChange={setView} />
+            <FabricPane
+              spec={loomSpec}
+              seed={seed}
+              view={view}
+              title="Tezgah"
+              strips={showStrips && positions ? { warp: positions.warp, weft: positions.weft, which: 'loom' } : undefined}
+              reedStrip={loomStrip}
+              onViewChange={setView}
+            />
           )}
           <FabricPane
             spec={debSpec}
             seed={seed}
             view={view}
-            title={mode === 'compare' ? 'Mamul' : undefined}
+            title={mode === 'compare' ? (compareKind === 'sameYarns' ? 'Mamul (aynı iplikler)' : 'Mamul') : undefined}
+            renderWindow={finishedWindow}
+            strips={showStrips && positions ? { warp: positions.warp, weft: positions.weft, which: 'finished' } : undefined}
+            reedStrip={finishedStrip}
             onViewChange={setView}
             onInfo={setInfo}
             onSize={onSize}

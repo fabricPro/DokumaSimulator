@@ -6,6 +6,7 @@ export * from './types';
 export { yarnDiameterMm, spacingMm, yarnGeometry, DEFAULT_FIBER_DENSITY, toTex as toTexV1 } from './geometry';
 export type { YarnGeometry } from './geometry';
 export * from './physical';
+export * from './reed';
 export { parseColor, toHex, cycleColor } from './color';
 export { mulberry32, hash3 } from './random';
 export { smoothstep, pmod, warpSign, weftSign, alongWave, crossProfile, ply } from './heightfield/wave';
