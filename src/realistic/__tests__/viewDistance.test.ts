@@ -4,6 +4,10 @@ import {
   cssPxPerMm,
   effectiveFwhmMm,
   filterFwhmMm,
+  filterSigmaMm,
+  materialTuning,
+  sharpBlend,
+  sharpWeight,
   filteredBakeDensity,
   FILTER_BAKE_MAX_TEXELS,
   footprintMm,
@@ -19,17 +23,54 @@ import { inputFromRows } from '../fixtures';
 import { plain } from '../../presets/weaves';
 
 describe('bakış modu = kumaş uzayında algısal filtre', () => {
-  it('mesafe → filtre çapı: 1 yay dakikası × mesafe (40 cm 0.116 mm, 2 m 0.582 mm, Lup 0)', () => {
+  it('çözünürlük sınırı: 1 yay dakikası × mesafe (40 cm 0.116 mm, 2 m 0.582 mm); Lup filtresiz', () => {
     expect(resolvableMm(VIEW_DISTANCE_MM.eye)).toBeCloseTo(0.1164, 3);
-    expect(filterFwhmMm('eye')).toBeCloseTo(0.1164, 3);
-    expect(filterFwhmMm('far')).toBeCloseTo(0.5818, 3);
+    expect(resolvableMm(VIEW_DISTANCE_MM.far)).toBeCloseTo(0.5818, 3);
+    expect(filterSigmaMm('loupe')).toBe(0);
     expect(filterFwhmMm('loupe')).toBe(0);
   });
-  it('σ = FWHM / 2.355; çap zoom\'dan bağımsız (kumaşa bağlı)', () => {
+  it('Gauss σ = çözünürlük / 2.5 (Göz 0.0466 mm, Uzak 0.2327 mm); FWHM = 2.355·σ', () => {
+    expect(filterSigmaMm('eye')).toBeCloseTo(0.1164 / 2.5, 4);
+    expect(filterSigmaMm('far')).toBeCloseTo(0.5818 / 2.5, 4);
+    expect(filterFwhmMm('eye')).toBeCloseTo(filterSigmaMm('eye') * 2.3548, 4);
     expect(sigmaFromFwhm(2.3548)).toBeCloseTo(1, 3);
-    // zoom'la değişmez: etkin çap yakın zoomda mod çapıdır
-    expect(effectiveFwhmMm('eye', 200)).toBeCloseTo(filterFwhmMm('eye'), 9);
-    expect(effectiveFwhmMm('eye', 400)).toBeCloseTo(filterFwhmMm('eye'), 9);
+  });
+  it('MTF: sınır frekansında (1 / çözünürlük) %4 civarı söner; 0.5 mm örgü hücresi Gözde seçilir', () => {
+    const mtf = (sigma: number, f: number) => Math.exp(-2 * Math.PI ** 2 * sigma ** 2 * f ** 2);
+    const sEye = filterSigmaMm('eye');
+    expect(mtf(sEye, 1 / resolvableMm(400))).toBeLessThan(0.05);
+    expect(mtf(sEye, 1 / 0.5)).toBeGreaterThan(0.75); // 0.5 mm periyot
+    expect(mtf(filterSigmaMm('far'), 1 / 2)).toBeGreaterThan(0.5); // Uzak'ta 2 mm'lik desen (dimi çizgisi) korunur
+  });
+  it('net çizime geçiş: σ_px ≤ 1.5 → 0 (filtreli), ≥ 4 → 1 (net), arada tek yönlü smoothstep', () => {
+    expect(sharpBlend(0.5)).toBe(0);
+    expect(sharpBlend(1.5)).toBe(0);
+    expect(sharpBlend(4)).toBeCloseTo(1, 9);
+    expect(sharpBlend(40)).toBe(1);
+    let prev = 0;
+    for (let px = 1.5; px <= 4; px += 0.1) {
+      const w = sharpBlend(px);
+      expect(w).toBeGreaterThanOrEqual(prev - 1e-12);
+      prev = w;
+    }
+    expect(sharpBlend(2.45)).toBeGreaterThan(0.4); // log-ortada ≈ 0.5
+    expect(sharpBlend(2.45)).toBeLessThan(0.6);
+  });
+  it('zoom → net ağırlık: Göz 32 px/mm başlar, 86 px/mm tam net; Uzak 6.4 / 17 px/mm; Lup 0', () => {
+    expect(sharpWeight('eye', 20)).toBe(0);
+    expect(sharpWeight('eye', 32.2)).toBeLessThan(0.01);
+    expect(sharpWeight('eye', 87)).toBeGreaterThan(0.99);
+    expect(sharpWeight('far', 6)).toBe(0);
+    expect(sharpWeight('far', 17.5)).toBeGreaterThan(0.99);
+    expect(sharpWeight('loupe', 500)).toBe(0);
+    // yakınlaştıkça bulanıklık artmaz: filtre σ'sı mm'de sabit, ağırlık zoom'la monoton artar
+    expect(sharpWeight('eye', 60)).toBeGreaterThan(sharpWeight('eye', 45));
+  });
+  it('malzeme karakteri: Göz / Uzak varsayılanları, Lup etkilenmez, kullanıcı değeri kazanır', () => {
+    expect(materialTuning('loupe', { relief: 1 })).toEqual({ relief: 1 });
+    expect(materialTuning('eye', {}).relief).toBe(0.5);
+    expect(materialTuning('far', { relief: 0.9 }).relief).toBe(0.9);
+    expect(materialTuning('eye', undefined).spread).toBeGreaterThan(1);
   });
   it('otomatik LOD: ayak izi büyükse ayak izine eşit minimum filtre (Lup 15 px/mm → 0.067 mm)', () => {
     expect(footprintMm(15)).toBeCloseTo(1 / 15, 9);

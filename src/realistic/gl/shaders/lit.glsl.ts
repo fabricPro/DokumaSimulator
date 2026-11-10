@@ -164,6 +164,7 @@ uniform sampler2D uOccTile;     // pişirilmiş (ao, gölge) döşemesi, LINEAR 
 uniform int uOccWindowed;       // 1: lup'ta uzun rapor — yalnız görünür pencere pişirildi (köken / boy mm)
 uniform vec2 uOccOrigin;
 uniform vec2 uOccSpan;
+uniform float uOutAlpha;        // < 1: net çizim filtreli görüntünün üstüne karışır (GL blend)
 uniform int uLinearOut;         // 1: sRGB doku hedefine (renk döşemesi) doğrusal çıkış; donanım sRGB'ye kodlar
 uniform sampler2D uHairTile;    // pişirilmiş tüy katmanı (önçarpımlı RGBA), mip'li + REPEAT
 uniform int uHairOn;            // yüksek kalitede 1
@@ -356,7 +357,7 @@ void main() {
     vec3 hl = uBg == 2 ? toLinear(hair.rgb / hair.a) * 0.06 : toLinear(hair.rgb / hair.a) * lightFlat;
     outS = mix(outS, clamp(toSrgb(tone(hl * uExposure)) * 1.05 + 4.0 / 255.0, 0.0, 1.0), hair.a);
   }
-  outColor = vec4(uLinearOut == 1 ? toLinear(outS) : outS, 1.0);
+  outColor = vec4(uLinearOut == 1 ? toLinear(outS) : outS, uOutAlpha);
 }
 `;
 
@@ -411,7 +412,9 @@ ${SRGB_GLSL}
 ${FABRIC_WARP_GLSL}
 void main() {
   vec2 mm = fabricWarp(uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY);
-  vec3 c = texture(uColorTile, (mm - uOrigin) / uSpan).rgb;
+  // LOD sapması +0.6 (≈ 1.5× ayak izi): pişirilmiş döşemede iplik aralığı ~2 piksele düştüğünde (Nyquist) aralık
+  // frekansı örtüşüp moiré yapıyordu — özellikle iplik aralığı daha dar paneli (Mamul). Hedef: ~1.5 piksellik min. filtre.
+  vec3 c = texture(uColorTile, (mm - uOrigin) / uSpan, 0.6).rgb;
   // iplik başına sapma: ayak izi (iplik cinsinden) kadar mip seviyesi
   vec2 fpT = (1.0 / uPxPerMmXY) / uPitchMm;
   int i = pmod(int(floor(mm.x / uPitchMm.x)), uVarN);

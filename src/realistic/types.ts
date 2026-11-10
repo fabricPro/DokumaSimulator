@@ -120,6 +120,8 @@ export interface Tuning {
    * 0 = kapalı, varsayılan 1. Seed'e bağlı, deterministik.
    */
   fabricIrregularity?: number;
+  /** Yumuşak iplik kenarı (kesit yarı genişliği oranı): kenarda lif dolgusu; 0 = yalnız piksel yumuşatması. Göz / Uzak varsayılanı 0.12. */
+  softEdge?: number;
   /** İplik yayılması çarpanı (Durak 2-E; 0 = sert yuvarlak kesit, 1 = varsayılan tip modeli). */
   spread?: number;
   /** Ton eşleme beyaz noktası (pozlama sonrası doğrusal; küçük = daha erken sıkıştırır). Varsayılan 2. */

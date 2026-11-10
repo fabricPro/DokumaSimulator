@@ -66,7 +66,7 @@ export function App() {
   const [spec, setSpec] = useState<FabricSpec>(() => physicalExample(6, 10));
   const [seed, setSeed] = useState(3);
   const [mode, setMode] = useState<'single' | 'compare'>('compare');
-  const [compareKind, setCompareKind] = useState<'sameYarns' | 'sameArea'>('sameYarns');
+  const [compareKind, setCompareKind] = useState<'sameYarns' | 'sameArea' | 'physicalArea'>('sameYarns');
   const [showStrips, setShowStrips] = useState(false);
   const [showLinks, setShowLinks] = useState(true);
   const [showWeftLinks, setShowWeftLinks] = useState(false);
@@ -148,11 +148,22 @@ export function App() {
   }, [paneSize.w, setArea]);
   const shownMm = (paneSize.w || 600) / view.pxPerMm;
 
-  // "Aynı iplikler": tezgah penceresindeki ipliklerin mamuldeki (daralmış) penceresi
+  // "Aynı iplikler": tezgah penceresindeki ipliklerin mamuldeki (daralmış) penceresi.
+  // "Aynı alan": iki panel AYNI boyutta (mm) ve üst kenarı AYNI atkıdan başlar — hizalama noktası sabit (tezgah
+  // penceresinin üst kenarındaki atkı → mamuldeki konumu); çekme yüzünden bant sınırları kaymaz, yalnız alt kısım
+  // (daha çok / az atkı) farklılaşır. "Fiziksel alan": eski davranış (aynı mm koordinatı, hizasız).
   const finishedWindow = useMemo<MmWindow | undefined>(() => {
-    if (mode !== 'compare' || compareKind !== 'sameYarns' || !positions || paneSize.w === 0) return undefined;
+    if (mode !== 'compare' || (compareKind !== 'sameYarns' && compareKind !== 'sameArea') || !positions || paneSize.w === 0) {
+      return undefined;
+    }
     const x1 = view.x0Mm + paneSize.w / view.pxPerMm;
     const y1 = view.y0Mm + paneSize.h / view.pxPerMm;
+    if (compareKind === 'sameArea') {
+      const loomH = paneSize.h / view.pxPerMm;
+      const loomW = paneSize.w / view.pxPerMm;
+      const fTop = mapLoomToFinished(positions.weft, y1);
+      return { x0Mm: view.x0Mm, y0Mm: fTop - loomH, widthMm: loomW, heightMm: loomH };
+    }
     const fx0 = mapLoomToFinished(positions.warp, view.x0Mm);
     const fy0 = mapLoomToFinished(positions.weft, view.y0Mm);
     return {
@@ -226,13 +237,13 @@ export function App() {
     [showWeftLinks, positions, view.y0Mm],
   );
   const shrinkLabel = useMemo(() => {
-    if (!finishedWindow || paneSize.w === 0) return undefined;
+    if (!finishedWindow || paneSize.w === 0 || compareKind !== 'sameYarns') return undefined;
     const loomW = paneSize.w / view.pxPerMm;
     const loomH = paneSize.h / view.pxPerMm;
     const boy = 100 * (1 - finishedWindow.heightMm / loomH);
     const en = 100 * (1 - finishedWindow.widthMm / loomW);
     return `boy %${boy.toFixed(1)} kısaldı, en %${en.toFixed(1)} daraldı`;
-  }, [finishedWindow, paneSize, view.pxPerMm]);
+  }, [finishedWindow, compareKind, paneSize, view.pxPerMm]);
 
   /** .atki.json belgesini (varyant + seçeneklerle) spec'e açar. Panelde düzenlenmiş iplik tanımları korunur. */
   const openAtki = (next: { key: string; belge: AtkiBelge; varyant: number; secenekler: AtkiSecenekler }, keepYarns: boolean) => {
@@ -499,8 +510,19 @@ export function App() {
               <button className={compareKind === 'sameYarns' ? 'on' : ''} onClick={() => setCompareKind('sameYarns')}>
                 Aynı iplikler
               </button>
-              <button className={compareKind === 'sameArea' ? 'on' : ''} onClick={() => setCompareKind('sameArea')}>
+              <button
+                className={compareKind === 'sameArea' ? 'on' : ''}
+                onClick={() => setCompareKind('sameArea')}
+                title="Aynı boyutta alan; üst kenar iki panelde aynı atkıdan başlar (çekmeye rağmen bant sınırları hizalı)"
+              >
                 Aynı alan
+              </button>
+              <button
+                className={compareKind === 'physicalArea' ? 'on' : ''}
+                onClick={() => setCompareKind('physicalArea')}
+                title="Aynı mm koordinatı (hizalama yok; çekme yüzünden mamulde bant sınırları kayar)"
+              >
+                Fiziksel alan
               </button>
             </div>
           )}
@@ -611,7 +633,7 @@ export function App() {
             spec={debSpec}
             seed={seed}
             view={view}
-            title={mode === 'compare' ? (compareKind === 'sameYarns' ? 'Mamul (aynı iplikler)' : 'Mamul') : undefined}
+            title={mode === 'compare' ? (compareKind === 'sameYarns' ? 'Mamul (aynı iplikler)' : compareKind === 'sameArea' ? 'Mamul (üst kenar aynı atkı)' : 'Mamul') : undefined}
             renderWindow={finishedWindow}
             strips={showStrips && positions ? { warp: positions.warp, weft: positions.weft, which: 'finished' } : undefined}
             reedStrip={finishedStrip}

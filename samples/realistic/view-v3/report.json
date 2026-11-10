@@ -1,0 +1,125 @@
+{
+  "note": "stripePct: sütun ortalaması (doğrusal parlaklık) DFT, periyot ≥ 2·çözgü aralığı olan en büyük bağıl genlik (%); sharpness: ortalama gradyan (×100).",
+  "rows": [
+    {
+      "distance": "eye",
+      "zoom": "tam rapor",
+      "pxPerMm": 4.32,
+      "sigmaPx": 0.2,
+      "sharpWeight": 0,
+      "stripePct": 0.05,
+      "sharpness": 8.538
+    },
+    {
+      "distance": "eye",
+      "zoom": "10 mm",
+      "pxPerMm": 64,
+      "sigmaPx": 2.98,
+      "sharpWeight": 0.78,
+      "stripePct": 0.49,
+      "sharpness": 5.363
+    },
+    {
+      "distance": "eye",
+      "zoom": "3 mm",
+      "pxPerMm": 213.33,
+      "sigmaPx": 9.93,
+      "sharpWeight": 1,
+      "stripePct": 3.28,
+      "sharpness": 1.716
+    },
+    {
+      "distance": "far",
+      "zoom": "tam rapor",
+      "pxPerMm": 4.32,
+      "sigmaPx": 1.01,
+      "sharpWeight": 0,
+      "stripePct": 0.08,
+      "sharpness": 2.473
+    },
+    {
+      "distance": "far",
+      "zoom": "10 mm",
+      "pxPerMm": 64,
+      "sigmaPx": 14.89,
+      "sharpWeight": 1,
+      "stripePct": 0.49,
+      "sharpness": 5.734
+    },
+    {
+      "distance": "far",
+      "zoom": "3 mm",
+      "pxPerMm": 213.33,
+      "sigmaPx": 49.64,
+      "sharpWeight": 1,
+      "stripePct": 3.23,
+      "sharpness": 1.668
+    },
+    {
+      "distance": "loupe",
+      "zoom": "2 px/mm Tezgah",
+      "sharpness": 2.854
+    },
+    {
+      "distance": "loupe",
+      "zoom": "2 px/mm Mamul",
+      "sharpness": 3.5
+    },
+    {
+      "distance": "eye",
+      "zoom": "düzensizlik",
+      "stripeOffPct": 0.08,
+      "stripeOnPct": 0.07
+    },
+    {
+      "distance": "far",
+      "zoom": "düzensizlik",
+      "stripeOffPct": 0.01,
+      "stripeOnPct": 0.06
+    },
+    {
+      "perf": [
+        [
+          "Göz tam rapor, gezinme",
+          7
+        ],
+        [
+          "Göz 10 mm (σ 3 px, geçiş), gezinme",
+          22.9
+        ],
+        [
+          "Göz 3 mm (net), gezinme",
+          19.3
+        ],
+        [
+          "Uzak 10 mm (net), gezinme",
+          18.5
+        ],
+        [
+          "Lup 100 px/mm, gezinme (filtreli yol)",
+          8.8
+        ],
+        [
+          "Lup 100 px/mm, durağan (keskin yol)",
+          43.1
+        ],
+        [
+          "Lup keskin geçişler: hücre bulma (flat)",
+          3.3
+        ],
+        [
+          "Lup keskin geçişler: G-buffer + düz gölgeleme (preview)",
+          33.2
+        ],
+        [
+          "Lup keskin geçişler: tam (G-buffer + ışık)",
+          18.6
+        ]
+      ],
+      "expensivePass": {
+        "name": "ekran G-buffer (iplik adayları, rölyef, lif dokusu)",
+        "shareOfSharpFrame": 1
+      }
+    }
+  ]
+}

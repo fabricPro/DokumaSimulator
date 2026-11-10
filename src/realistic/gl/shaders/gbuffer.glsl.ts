@@ -40,6 +40,7 @@ uniform float uPlyK;            // relief.ts PLY_K
 uniform sampler2D uThreads;     // RGBA32F iplik tablosu (pack.ts threadTable), v2
 uniform vec4 uFreqW;            // çözgü boyunca döşemeye yuvarlanmış frekanslar (0.45, 0.13, 0.9, 0.31) — tile.ts snapFreq
 uniform vec3 uFreqF;            // atkı boyunca (0.45, 0.13, 0.7)
+uniform float uSoftEdge;        // yumuşak iplik kenarı (kesit yarı genişliği oranı): kenarda lif dolgusu
 uniform float uDetailMm;        // Göz / Uzak: algısal filtre çapı (mm); periyodu < 2·çap iplik içi detay söner (0 = Lup)
 uniform int uSpan;              // aday yarı genişliği: 1 → iki komşu merkez; 2 → dört (kesit genişliği > aralık)
 uniform sampler2D uFiber;       // R16F, tekrar eden anizotropik lif gürültüsü (x enine, y boyunca)
@@ -339,14 +340,14 @@ void v2Main(float X, float Y, vec2 fp) {
     float a = rw * sqrt(k); float b = rw / sqrt(k);
     float dx = X - ((float(i) + 0.5) * pw + ta.y) - wobV2(0, tb, tc2, Y / pf) * pw;
     // kenar yumuşatma için silüetin yarım piksel dışına kadar aday
-    if (!(abs(dx) < a + max(fp.x, tc2.w * a))) continue;
+    if (!(abs(dx) < a + max(fp.x, max(tc2.w, uSoftEdge) * a))) continue;
     vec4 q0 = czP(ip, k0p); vec4 q1 = czP(ip, k0q);
     float z0 = q0.x; float z1 = q1.x;
     vec2 eW = crimpEase(s, q0.z > 0.5, q1.z > 0.5);
     float u = clamp(dx / a, -1.0, 1.0);
     float prof = b * sqrt(max(0.0, 1.0 - u * u));
     // Kenar kapsaması; tekstürede kabarık saçak: geçiş genişliği max(piksel, yumuşaklık·a)
-    float cov = clamp(0.5 + (a - abs(dx)) / max(fp.x, tc2.w * a), 0.0, 1.0);
+    float cov = clamp(0.5 + (a - abs(dx)) / max(fp.x, max(tc2.w, uSoftEdge) * a), 0.0, 1.0);
     pushCand(t1, t2, Cand(mix(z0, z1, eW.x) + prof, 1.0, i, u, prof, cov, vec2(slope(u, a, b, 1.0), (z1 - z0) * eW.y / (c1 - c0)), dx, a));
   }
 
@@ -360,13 +361,13 @@ void v2Main(float X, float Y, vec2 fp) {
     float k = ta.z;
     float a = rf0 * sqrt(k); float b = rf0 / sqrt(k);
     float dy = Y - ((float(j) + 0.5) * pf + ta.y) - wobV2(1, tb, tc2, X / pw) * pf;
-    if (!(abs(dy) < a + max(fp.y, tc2.w * a))) continue;
+    if (!(abs(dy) < a + max(fp.y, max(tc2.w, uSoftEdge) * a))) continue;
     vec4 q0 = czP(k2p, jp); vec4 q1 = czP(k2q, jp);
     float z0 = q0.y; float z1 = q1.y;
     vec2 eF = crimpEase(s2, q0.w > 0.5, q1.w > 0.5);
     float u = clamp(dy / a, -1.0, 1.0);
     float prof = b * sqrt(max(0.0, 1.0 - u * u));
-    float cov = clamp(0.5 + (a - abs(dy)) / max(fp.y, tc2.w * a), 0.0, 1.0);
+    float cov = clamp(0.5 + (a - abs(dy)) / max(fp.y, max(tc2.w, uSoftEdge) * a), 0.0, 1.0);
     pushCand(t1, t2, Cand(mix(z0, z1, eF.x) + prof, 2.0, j, u, prof, cov, vec2((z1 - z0) * eF.y / (e1 - e0), slope(u, a, b, 1.0)), dy, a));
   }
 

@@ -204,11 +204,19 @@ r.render(input, { ...view, distance: 'eye' }); // 'eye' | 'far' | 'loupe'; pxPer
 const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // ekranda 1 mm = kumaşta 1 mm
 ```
 
-- **Filtre çapı** (Gauss FWHM, kumaş üzerinde, mm) = 1 yay dakikası × mesafe: Göz (40 cm) 0.116 mm, Uzak (2 m)
-  0.582 mm, Lup 0 (`filterFwhmMm`; σ = FWHM / 2.355). Çekirdek kumaşa bağlıdır, zoom'la birlikte ölçeklenir:
-  yakınlaştırınca "bu mesafeden gözün gördüğü kumaşın büyütülmüş hali" görünür. İplik içi detay (kat / büküm
-  şeridi, lif) periyodu < 2 × çap ise analitik söner, tüy pişirilmez; örgü dokusu, dimi çizgisi, iplik yönü kalır.
-- **Otomatik LOD:** her modda piksel ayak izi daha büyükse ayak izine eşit minimum filtre (`effectiveFwhmMm`):
+- **Çözünürlük sınırı ve filtre:** gözün 1 yay dakikalık çözünürlüğü = bir çevrim (çizgi + boşluk): Göz (40 cm)
+  ≈ 0.12 mm, Uzak (2 m) ≈ 0.6 mm (`resolvableMm`). Bu bir bulanıklık yarıçapı değil, çözünürlük sınırıdır. Filtre
+  Gauss σ = çözünürlük / 2.5 (`filterSigmaMm`: Göz 0.047 mm, Uzak 0.233 mm; sınır frekansında MTF ≈ %4, 0.5 mm'lik
+  örgü hücresi Göz'de %78 kalır). Çekirdek kumaşa bağlıdır; iplik içi detay (kat / büküm, lif) periyodu < 2 × çözünürlük
+  ise söner; örgü dokusu, dimi çizgisi, iplik yönü kalır.
+- **Yakınlaştırınca bulanıklaşma yok — net çizime geçiş** (`sharpBlend`): filtrenin ekrandaki büyüklüğü
+  σ_px = σ_mm · px/mm. σ_px ≤ 1.5 iken görüntü filtreli (pişirilmiş) yoldur; 1.5 px'i aşınca bulanıklık artmaz,
+  1.5 → 4 px arasında (≈ 3 zoom adımı) net (lup tipi) çizime karışır (GL blend). Net çizimde Göz / Uzak'ın "malzeme"
+  karakteri korunur (`materialTuning`: zemin modun varsayılanı açık, yayılma ×2.2 + yumuşak iplik kenarı ile iplik
+  araları kapanır, rölyef 0.5, melanj 0.7, tüylülük 0.5); Lup tam detaylı, koyu zeminli inceleme modudur. Göz ≈ 32 →
+  86 px/mm, Uzak ≈ 6.4 → 17 px/mm arasında geçiş olur.
+- **Otomatik LOD:** her modda piksel ayak izi daha büyükse ayak izine eşit minimum filtre (`effectiveFwhmMm`; örnekleme
+  +0.6 LOD sapmasıyla ≈ 1.5 piksel — iplik aralığı ~2 piksele düşünce moiré olmasın, panel yoğunluğundan bağımsız):
   ön süzülmüş döşemenin mip seviyesi donanımca seçilir. Lup'ta iplik 3 pikselin altına inince (`useFilteredPath`)
   keskin ekran yolu yerine aynı filtreli yol kullanılır (aliasing / "tel elek" yok).
 - **Önbellek:** filtreli yol ışıklı sahneyi bir kez pişirir, kumaş mm'sinde ayrılabilir Gauss ile ön süzer

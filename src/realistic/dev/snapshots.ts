@@ -18,7 +18,7 @@ import { fabricInputFromSpec } from '../adapters/fromSpec';
 import { computeMetrics } from '../../render-engine/physical/metrics';
 import { DEMO_DESENLER } from '../../app/demoDesenler';
 import { atkiJsonToFabricSpec, orguAnahtari } from '../../adapters/atkiJson';
-import { cssPxPerMm, filterFwhmMm, resolvableMm, VIEW_DISTANCE_MM } from '../viewDistance';
+import { cssPxPerMm, filterFwhmMm, filterSigmaMm, resolvableMm, sharpWeight, VIEW_DISTANCE_MM } from '../viewDistance';
 import { physicalExample } from '../../presets/physicalExample';
 import { diameterMm as yarnDiameterMm, toTex as yarnToTex } from '../yarn';
 import { pitchMm } from '../scale';
@@ -1369,8 +1369,205 @@ async function viewV2Durak2(say: (t: string) => void) {
   return out;
 }
 
+/**
+ * view-v3 (Göz / Uzak: yakınlaştırınca bulanıklık yok, net malzeme çizimine geçiş): samples/realistic/view-v3/.
+ *  - bendix-v3-<goz|uzak>.png: 3 zoom yan yana — tam rapor, 10 mm, 3 mm (Tezgah paneli);
+ *  - bendix-v3-lup-2.png: Lup ~2 px/mm, Tezgah | Mamul (aynı formülle ayak izi / LOD);
+ *  - bendix-v3-duzensizlik-<goz|uzak>.png: düzensizlik kapalı ↔ açık;
+ *  - report.json: şerit gücü (sütun ortalaması spektrumu), net ağırlık / σ_px değerleri, keskinlik ölçüsü
+ *    (ortalama gradyan büyüklüğü: bulanık görüntüde düşük).
+ */
+async function viewV3Snapshots(say: (t: string) => void) {
+  const d = DEMO_DESENLER.find((x) => x.key === 'gardisette-bendix-stripe')!;
+  const k3 = d.json.varyasyonlar.findIndex((v) => v.ad === 'Varyant 3');
+  const spec = { ...atkiJsonToFabricSpec(d.json, { ...d, varyantIndex: k3 }), warpShrinkPct: 6, weftShrinkPct: 10 };
+  const loom = fabricInputFromSpec(spec, undefined, { densities: 'loom' });
+  const fin = fabricInputFromSpec(spec, undefined, { densities: 'finished' });
+  const L = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const render = (input: FabricInput, w: number, h: number, ppm: number, origin: [number, number], distance: 'eye' | 'far' | 'loupe', tuning: ViewParams['tuning'] = {}) => {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+    r.render(input, { pxPerCm: ppm * 10, offsetCm: [origin[0] / 10, origin[1] / 10], light: LIGHT, quality: 'high', distance, tuning: { background: distance === 'loupe' ? 'darkgray' : 'light', ...tuning } });
+    const o = document.createElement('canvas');
+    o.width = w;
+    o.height = h;
+    o.getContext('2d')!.drawImage(c, 0, 0);
+    r.dispose();
+    return o;
+  };
+  const stripePower = (cv: HTMLCanvasElement, minPeriodPx: number) => {
+    const { data, width, height } = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height);
+    const prof = new Float64Array(width);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const o = (y * width + x) * 4;
+        prof[x] += 0.2126 * L(data[o] / 255) + 0.7152 * L(data[o + 1] / 255) + 0.0722 * L(data[o + 2] / 255);
+      }
+    const mean = prof.reduce((a, b) => a + b, 0) / width;
+    let best = 0;
+    for (let k = 1; k <= Math.floor(width / minPeriodPx); k++) {
+      let re = 0;
+      let im = 0;
+      for (let i = 0; i < width; i++) {
+        re += (prof[i] - mean) * Math.cos((2 * Math.PI * k * i) / width);
+        im += (prof[i] - mean) * Math.sin((2 * Math.PI * k * i) / width);
+      }
+      best = Math.max(best, (2 * Math.hypot(re, im)) / width / mean);
+    }
+    return +(100 * best).toFixed(2);
+  };
+  /** Keskinlik: ortalama |gradyan| (doğrusal parlaklık / piksel) — bulanık görüntüde düşer. */
+  const sharpness = (cv: HTMLCanvasElement) => {
+    const { data, width, height } = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height);
+    const lum = (o: number) => 0.2126 * L(data[o] / 255) + 0.7152 * L(data[o + 1] / 255) + 0.0722 * L(data[o + 2] / 255);
+    let s = 0;
+    for (let y = 1; y < height; y++)
+      for (let x = 1; x < width; x++) s += Math.abs(lum((y * width + x) * 4) - lum((y * width + x - 1) * 4)) + Math.abs(lum((y * width + x) * 4) - lum(((y - 1) * width + x) * 4));
+    return +((s / (width * height)) * 100).toFixed(3);
+  };
+  const pw = pitchMm(loom.density.warpPerCm);
+  const reportH = (loom.weave.wefts / loom.density.weftPerCm) * 10;
+  const W = 640;
+  const rows: Array<Record<string, unknown>> = [];
+  for (const dist of ['eye', 'far'] as const) {
+    const sig = filterSigmaMm(dist);
+    const c = document.createElement('canvas');
+    c.width = 3 * W + 16;
+    c.height = W;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, W);
+    const zooms = [
+      { name: 'tam rapor', ppm: W / reportH, oy: 0 },
+      { name: '10 mm', ppm: W / 10, oy: reportH * 0.3 },
+      { name: '3 mm', ppm: W / 3, oy: reportH * 0.3 },
+    ];
+    zooms.forEach((z, k) => {
+      const im = render(loom, W, W, z.ppm, [0, z.oy], dist);
+      g.drawImage(im, k * (W + 8), 0);
+      const sp = stripePower(im, Math.max(4, 2 * pw * z.ppm));
+      const sh = sharpness(im);
+      const wS = sharpWeight(dist, z.ppm);
+      rows.push({ distance: dist, zoom: z.name, pxPerMm: +z.ppm.toFixed(2), sigmaPx: +(sig * z.ppm).toFixed(2), sharpWeight: +wS.toFixed(2), stripePct: sp, sharpness: sh });
+      labelOn(g, k * (W + 8) + 10, 10, `${dist === 'eye' ? 'Göz 40 cm' : 'Uzak 2 m'} · ${z.name} · ${z.ppm.toFixed(1)} px/mm · σ ${(sig * z.ppm).toFixed(1)} px · net %${Math.round(100 * wS)}`);
+    });
+    await save(0, `bendix-v3-${dist === 'eye' ? 'goz' : 'uzak'}.png`, c.toDataURL('image/png'), 'png');
+  }
+  // Lup ~2 px/mm: Tezgah | Mamul (iki panel aynı formül)
+  {
+    const ppm = 2;
+    const c = document.createElement('canvas');
+    c.width = 2 * W + 8;
+    c.height = W;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, W);
+    const a = render(loom, W, W, ppm, [0, 10], 'loupe');
+    const b = render(fin, W, W, ppm, [0, 10], 'loupe');
+    g.drawImage(a, 0, 0);
+    g.drawImage(b, W + 8, 0);
+    labelOn(g, 10, 10, `Lup 2 px/mm · Tezgah (${loom.density.warpPerCm.toFixed(1)} tel/cm)`);
+    labelOn(g, W + 18, 10, `Mamul (${fin.density.warpPerCm.toFixed(1)} tel/cm) · aynı LOD formülü`);
+    rows.push({ distance: 'loupe', zoom: '2 px/mm Tezgah', sharpness: sharpness(a) }, { distance: 'loupe', zoom: '2 px/mm Mamul', sharpness: sharpness(b) });
+    await save(0, 'bendix-v3-lup-2.png', c.toDataURL('image/png'), 'png');
+  }
+  // Düzensizlik kapalı / açık (geniş alan, yönlü barre)
+  for (const [dist, ppm] of [['eye', W / 80], ['far', W / 140]] as const) {
+    const off = render(loom, W, W, ppm, [0, 8], dist, { irregularity: 0, fabricIrregularity: 0 });
+    const on = render(loom, W, W, ppm, [0, 8], dist, {});
+    const c = document.createElement('canvas');
+    c.width = 2 * W + 8;
+    c.height = W;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, W);
+    g.drawImage(off, 0, 0);
+    g.drawImage(on, W + 8, 0);
+    labelOn(g, 10, 10, `${dist === 'eye' ? 'Göz' : 'Uzak'} · düzensizlik kapalı`);
+    labelOn(g, W + 18, 10, 'açık: atkı yönünde barre + çözgü başına ince ton (yönlü), ΔE ≈ 1');
+    rows.push({ distance: dist, zoom: 'düzensizlik', stripeOffPct: stripePower(off, 6), stripeOnPct: stripePower(on, 6) });
+    await save(0, `bendix-v3-duzensizlik-${dist === 'eye' ? 'goz' : 'uzak'}.png`, c.toDataURL('image/png'), 'png');
+  }
+  // Performans (1024², duvar saati: render + 1 piksel okuma; medyan). Lup yakın: en pahalı geçişi ayırmak için
+  // 'flat' (hücre bulma) ↔ 'preview' (G-buffer + düz gölgeleme) ↔ 'lit' (tam) karşılaştırılır.
+  {
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 1024;
+    const gl = c.getContext('webgl2') as WebGL2RenderingContext;
+    const dbgI = gl.getExtension('WEBGL_debug_renderer_info');
+    const gpu = dbgI ? String(gl.getParameter(dbgI.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
+    const px = new Uint8Array(4);
+    const run = (ro: Parameters<typeof createRealisticRenderer>[1], input: FabricInput, dist: 'eye' | 'far' | 'loupe', ppm: number, navigating: boolean, quality: ViewParams['quality'] = 'high') => {
+      const r = createRealisticRenderer(c, ro);
+      const times: number[] = [];
+      let first = 0;
+      for (let k = 0; k < 30; k++) {
+        const t0 = performance.now();
+        r.render(input, { pxPerCm: ppm * 10 * (1 + 0.01 * (k % 10)), offsetCm: [0.02 * k, 1 + 0.03 * k], light: LIGHT, quality, distance: dist, navigating, tuning: { background: dist === 'loupe' ? 'darkgray' : 'light' } });
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        const dt = performance.now() - t0;
+        if (k === 0) first = dt;
+        else times.push(dt);
+      }
+      r.dispose();
+      times.sort((a, b) => a - b);
+      return { firstMs: +first.toFixed(1), medianMs: +times[Math.floor(times.length / 2)].toFixed(2), p90Ms: +times[Math.floor(times.length * 0.9)].toFixed(2) };
+    };
+    const perf: Array<Record<string, unknown>> = [];
+    for (const [name, dist, ppm, nav] of [
+      ['Göz tam rapor, gezinme', 'eye', 4.3, true],
+      ['Göz 10 mm (σ 3 px, geçiş), gezinme', 'eye', 64, true],
+      ['Göz 3 mm (net), gezinme', 'eye', 213, true],
+      ['Uzak 10 mm (net), gezinme', 'far', 64, true],
+      ['Lup 100 px/mm, gezinme (filtreli yol)', 'loupe', 100, true],
+      ['Lup 100 px/mm, durağan (keskin yol)', 'loupe', 100, false],
+    ] as const) {
+      perf.push({ case: name, ...run({}, loom, dist, ppm, nav) });
+    }
+    const flat = run({ debugView: 'flat' }, loom, 'loupe', 100, false);
+    const prev = run({ debugView: 'preview' }, loom, 'loupe', 100, false);
+    const lit = run({}, loom, 'loupe', 100, false);
+    perf.push(
+      { case: 'Lup keskin geçişler: hücre bulma (flat)', ...flat },
+      { case: 'Lup keskin geçişler: G-buffer + düz gölgeleme (preview)', ...prev },
+      { case: 'Lup keskin geçişler: tam (G-buffer + ışık)', ...lit },
+    );
+    const gShare = Math.max(0, Math.min(1, (prev.medianMs - flat.medianMs) / Math.max(lit.medianMs - flat.medianMs, 0.01)));
+    const perfOut = {
+      gpu,
+      size: 1024,
+      method: 'duvar saati: render + 1 piksel okuma (~1.5 ms okuma payı dahil); medyan, ilk kare hariç',
+      budgetMs: { navigation: 4 },
+      expensivePass: { name: 'ekran G-buffer (iplik adayları, rölyef, lif dokusu)', shareOfSharpFrame: +gShare.toFixed(2) },
+      notes: [
+        'Önbellekte: ao / gölge / tüy (keskin yol), filtreli yol tüm sahneyi pişirilmiş mip döşemesinden örnekler.',
+        'Göz / Uzak gezinmede: σ_px ≤ 1.5 ise yalnız döşeme örneklenir; net çizime geçen zoomlarda (σ_px > 1.5) G-buffer her karede çizilir (net çizim pişirilemez: çözünürlük zoom ile değişir) — gezinirken yarım çözünürlük (RealisticLayer) kullanılır.',
+        'Lup gezinme: filtreli yol; durağan keskin kare tek seferlik.',
+      ],
+      rows: perf,
+    };
+    await save(0, 'perf.json', JSON.stringify(perfOut, null, 2), 'json');
+    rows.push({ perf: perf.map((x) => [x.case, x.medianMs]), expensivePass: perfOut.expensivePass });
+  }
+  const report = { note: 'stripePct: sütun ortalaması (doğrusal parlaklık) DFT, periyot ≥ 2·çözgü aralığı olan en büyük bağıl genlik (%); sharpness: ortalama gradyan (×100).', rows };
+  await save(0, 'report.json', JSON.stringify(report, null, 2), 'json');
+  say('view-v3: ' + JSON.stringify(rows).slice(0, 2500));
+  return report;
+}
+
 async function run() {
   const tagParam = new URLSearchParams(location.search).get('phase') ?? '1';
+  if (tagParam === 'view-v3') {
+    SAVE_TAG = 'view-v3';
+    const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');
+    window.__snapshotsReport = await viewV3Snapshots(say);
+    window.__snapshotsDone = true;
+    say('Bitti.');
+    return;
+  }
   if (tagParam === 'view-v2') {
     SAVE_TAG = 'view-v2';
     const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');

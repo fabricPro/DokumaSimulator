@@ -29,17 +29,47 @@ export function resolvableMm(distanceMm: number): number {
 }
 
 /**
- * Algısal filtrenin ÇAPI (Gauss tam genişlik yarı yükseklik, FWHM; mm, kumaş üzerinde). VARSAYIM: çap = 1′ çözünürlük
- * (gözün iki noktayı ayırabildiği en küçük açı); Göz 0.116 mm, Uzak 0.582 mm, Lup 0 (filtre yok).
+ * Algısal filtre. `resolvableMm` gözün o mesafede ayırt edebildiği EN KÜÇÜK DETAY'dır: 1 yay dakikası = bir çevrim
+ * (çizgi + boşluk çifti) — Göz (40 cm) ≈ 0.12 mm, Uzak (2 m) ≈ 0.6 mm. Bu bir bulanıklık yarıçapı DEĞİL, çözünürlük
+ * sınırıdır: periyodu bundan uzun detay (ör. 0.5 mm'lik örgü hücresi) olduğu gibi seçilir, kısa periyotlu detay
+ * (iplik içi büküm / lif) söner.
+ *
+ * Gauss σ = çözünürlük / 2.5. Gerekçe: Gauss'un modülasyon aktarım fonksiyonu MTF(f) = exp(−2π²σ²f²); sınır
+ * frekansında f = 1 / çözünürlük için MTF = exp(−2π² / 2.5²) = %4.2 (gözün kontrast eşiği ≈ %2–5 → sınırda kaybolur);
+ * periyodu 4 × çözünürlük olan detayda (Göz'de 0.5 mm) MTF = %78 — seçilebilir kalır.
  */
-export function filterFwhmMm(distance: ViewDistance): number {
-  return distance === 'loupe' ? 0 : resolvableMm(VIEW_DISTANCE_MM[distance]);
+export const SIGMA_PER_RESOLUTION = 1 / 2.5;
+export function filterSigmaMm(distance: ViewDistance): number {
+  return distance === 'loupe' ? 0 : resolvableMm(VIEW_DISTANCE_MM[distance]) * SIGMA_PER_RESOLUTION;
 }
 
 /** Gauss σ = FWHM / (2·√(2·ln 2)) ≈ FWHM / 2.355. */
 export const FWHM_PER_SIGMA = 2 * Math.sqrt(2 * Math.LN2);
 export function sigmaFromFwhm(fwhmMm: number): number {
   return fwhmMm / FWHM_PER_SIGMA;
+}
+/** Filtre tam genişlik yarı yükseklik (FWHM, mm) = 2.355·σ (mip / LOD hesapları FWHM kullanır). */
+export function filterFwhmMm(distance: ViewDistance): number {
+  return filterSigmaMm(distance) * FWHM_PER_SIGMA;
+}
+
+/**
+ * Net çizime geçiş (zoom ile): algısal filtrenin ekrandaki büyüklüğü σ_px = σ_mm · px/mm. σ_px ≤ 1.5 iken görüntü
+ * filtreli (pişirilmiş) yoldur; 1.5 px'i aştıktan sonra bulanıklaştırma ARTMAZ — net (lup tipi, "malzeme" karakterli)
+ * çizime yumuşakça geçilir: ağırlık log(σ_px)'de smoothstep, 1.5 → 4 px (≈ 1.4 oktav ≈ 3 zoom adımı). VARSAYIM:
+ * 1.5 px (filtrenin bir pikselden belirgin büyük olduğu eşik), 4 px (tam net).
+ */
+export const SHARP_BLEND_START_PX = 1.5;
+export const SHARP_BLEND_END_PX = 4;
+export function sharpBlend(sigmaPx: number): number {
+  if (!(sigmaPx > SHARP_BLEND_START_PX)) return 0;
+  const t = Math.log(sigmaPx / SHARP_BLEND_START_PX) / Math.log(SHARP_BLEND_END_PX / SHARP_BLEND_START_PX);
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+}
+/** Bu zoom'da net çizim ağırlığı: Lup'ta 0 (kendi mantığı), Göz / Uzak'ta σ_px'e göre. */
+export function sharpWeight(distance: ViewDistance, pxPerMm: number): number {
+  return distance === 'loupe' ? 0 : sharpBlend(filterSigmaMm(distance) * pxPerMm);
 }
 
 /** Piksel ayak izi (mm): ekranda bir cihaz pikselinin kumaşta kapladığı boy. */
@@ -133,3 +163,21 @@ export function lruEvictions<T>(entries: Array<{ id: T; bytes: number }>, keep: 
   }
   return out;
 }
+
+/**
+ * Göz / Uzak "malzeme" karakteri (net çizimde ve filtreli pişirmede aynı, geçiş tutarlı olsun): gözle bakılan kumaş
+ * kapalı yüzeyli, iplik içi detay orta düzeyde, siyah boşluk yok. Kullanıcının verdiği Tuning değerleri ezer.
+ * VARSAYIM (gözle seçildi): rölyef 0.5 (büküm / lif kabartması yarıya), melanj 0.7, tüylülük 0.5,
+ * yayılma ×2.2 (iplik araları kapanır: viewDistance → geometry.spreadFactor), yumuşak kenar 0.12·a
+ * (iplik kenarında lif dolgusu: kapsama geçişi kesit yarı genişliğinin %12'si).
+ */
+export const MATERIAL_DEFAULTS = { relief: 0.5, melange: 0.7, hairiness: 0.5, spread: 2.2, softEdge: 0.12 } as const;
+export function materialTuning<T extends object>(distance: ViewDistance, tuning?: T): T & typeof MATERIAL_DEFAULTS {
+  return (distance === 'loupe' ? { ...(tuning ?? {}) } : { ...MATERIAL_DEFAULTS, ...(tuning ?? {}) }) as T & typeof MATERIAL_DEFAULTS;
+}
+
+/**
+ * Görüntülemede iplik ton farkı (ΔE) ölçeği: varsayılan Faz 4 ΔE 1.5 → ≈ 1.0 (kumaş ölçeğinde fark edilir ama baskın
+ * değil; "bulut" olmasın). Kullanıcının irregularity çarpanı / ΔE değeri bu ölçekle çarpılır.
+ */
+export const VIEW_TONE_DE_SCALE = 2 / 3;

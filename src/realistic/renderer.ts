@@ -20,7 +20,10 @@ import {
   filterFwhmMm,
   filteredBakeDensity,
   lruEvictions,
+  VIEW_TONE_DE_SCALE,
+  materialTuning,
   minYarnDiameterMm,
+  sharpWeight,
   sigmaFromFwhm,
   useFilteredPath,
 } from './viewDistance';
@@ -382,8 +385,8 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
   /** Kumaş ölçeğinde düzensizlik (FABRIC_WARP_GLSL): yalnız ekran geçişlerinde; pişirmede 0. */
   const setFabricWarp = (u: (n: string) => WebGLUniformLocation | null, input: FabricInput, v: ViewParams, on: boolean) => {
     const m = on ? Math.max(0, v.tuning?.fabricIrregularity ?? 1) : 0;
-    // VARSAYIM: barre ±%2.5, çözgü sapması 0.12 mm, atkı yayı 0.10 mm
-    gl.uniform3f(u('uFab'), 0.025 * m, 0.12 * m, 0.1 * m);
+    // VARSAYIM: barre ±%2.5, çözgü dalgası 0.08 mm, atkı yayı 0.06 mm (her biri tek eksenin fonksiyonu: yönlü)
+    gl.uniform3f(u('uFab'), 0.025 * m, 0.08 * m, 0.06 * m);
     const seed = resolveIrregularity(input, 1).seed;
     const ph = (k: number) => Math.PI * threadRand(0, 7919 + k, 30, seed);
     gl.uniform3f(u('uFabPhA'), ph(0), ph(1), ph(2));
@@ -470,6 +473,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     commonUniforms(ug, t, input, v);
     gl.uniform1i(ug('uLayered'), opts.singleLayer ? 0 : 1);
     gl.uniform1f(ug('uDetailMm'), filterFwhmMm(v.distance ?? 'loupe'));
+    gl.uniform1f(ug('uSoftEdge'), v.tuning?.softEdge ?? 0);
     setFabricWarp(ug, input, v, screen);
     gl.uniform1f(ug('uPlyK'), PLY_K);
     gl.uniform2f(ug('uOffsetMm'), offsetMm[0], offsetMm[1]);
@@ -509,6 +513,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     target: WebGLFramebuffer | null,
     ppmXY: [number, number],
     offsetMm: [number, number],
+    alpha = 1,
   ) => {
     // Doku oluşturan yardımcılar (sapma tablosu, iplik tabloları) bağlamalardan ÖNCE: yeni doku o an etkin birime
     // bağlanır ve aksi hâlde önceki bağlamayı (ör. uThreads) ezer
@@ -542,7 +547,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       bindTex(14, vt.weft, ul('uVarWeft'));
       gl.uniform1i(ul('uVarN'), THREAD_VARIATION_PERIOD);
       // pişirmede 0 (filtreli yol görüntülemede uygular); OKLab ΔE/100 → doğrusal ≈ 3·ΔL
-      gl.uniform1f(ul('uVarTone'), target ? 0 : (3 * irv.colorDeltaE) / (100 * 1.1489125));
+      gl.uniform1f(ul('uVarTone'), target ? 0 : (3 * irv.colorDeltaE * VIEW_TONE_DE_SCALE) / (100 * 1.1489125));
     }
     gl.uniform1i(ul('uAnalyticN'), (v.tuning?.model ?? 'v2') === 'v2' ? 1 : 0);
     gl.uniform1f(ul('uWhite'), Math.max(1.05, v.tuning?.whitePoint ?? 2));
@@ -566,7 +571,14 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const irl = resolveIrregularity(input, v.tuning?.irregularity ?? 1);
     gl.uniform1ui(ul('uSeed'), irl.seed);
     gl.uniform1f(ul('uColorDE'), irl.colorDeltaE);
+    const blend = alpha < 1 && !target;
+    gl.uniform1f(ul('uOutAlpha'), target ? 1 : alpha);
+    if (blend) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (blend) gl.disable(gl.BLEND);
   };
 
   /** Tüy katmanı: lifler (CPU, deterministik) 2B tuvale çizilir → önçarpımlı RGBA8 döşeme. */
@@ -646,12 +658,28 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       gl.deleteTexture(varTex.weft);
     }
     const N = THREAD_VARIATION_PERIOD;
+    /**
+     * Yönlü düzensizlik (bulut / leke değil):
+     *  - atkı (ax 1): atkı başına VE atkı grupları boyunca ton + kalınlık dalgalanması = yatay barre çizgileri. Düşük
+     *    frekanslı bileşenler tabloda TAM sayıda çevrimle (k çevrim / N) → dikişsiz tekrar; ≥ 3 ekseni birbirine
+     *    ölçülemez asal k'lar (13, 29, 61, 131, 277 çevrim ≈ 315 … 15 atkı periyodu) → düzenli şerit tekrarı yok;
+     *  - çözgü (ax 0): yalnız çözgü başına çok hafif bağımsız ton farkı (dikey, genliği atkının ~%25'i).
+     * İki boyutlu izotropik gürültü kullanılmaz: ton = f(çözgü indeksi) + g(atkı indeksi).
+     */
+    const K = [13, 29, 61, 131, 277];
+    const AMP = [0.35, 0.3, 0.25, 0.2, 0.15];
+    const NORM = 1 / Math.sqrt(AMP.reduce((a2, x) => a2 + (x * x) / 2, 0));
     const mk = (ax: 0 | 1) => {
       const d = new Float32Array(N * 4);
+      const ph = K.map((_, k) => Math.PI * threadRand(1, 100 + k, 31, seed));
       for (let i = 0; i < N; i++) {
-        // kanal 20+: düzensizlik kanallarından (0–11) ayrı; indeks döşemeye göre değil, mutlak
-        const L = threadRand(ax, i, 20, seed);
-        d.set([L + 0.4 * threadRand(ax, i, 21, seed), L + 0.4 * threadRand(ax, i, 22, seed), L + 0.4 * threadRand(ax, i, 23, seed), threadRand(ax, i, 24, seed)], i * 4);
+        let barre = 0;
+        if (ax === 1) for (let k = 0; k < K.length; k++) barre += AMP[k] * Math.sin((2 * Math.PI * K[k] * i) / N + ph[k]);
+        barre *= NORM; // ≈ birim std
+        const own = (ch: number) => threadRand(ax, i, ch, seed);
+        const base = ax === 1 ? 0.8 * barre + 0.35 * own(20) : 0.25 * own(20);
+        const thick = ax === 1 ? 0.6 * barre + 0.4 * own(24) : 0.25 * own(24);
+        d.set([base + 0.1 * own(21), base + 0.1 * own(22), base + 0.1 * own(23), thick], i * 4);
       }
       const tx = gl.createTexture()!;
       gl.bindTexture(gl.TEXTURE_2D, tx);
@@ -699,6 +727,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       tn.model ?? 'v2',
       tn.flattening ?? 1,
       tn.spread ?? 1,
+      tn.softEdge ?? 0,
       tn.contactShadow ?? 1,
       filtered ? ['F', distance, Dfilt] : 0,
       colorBake
@@ -919,13 +948,27 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       const offsetMm: [number, number] = [v.offsetCm[0] * 10, v.offsetCm[1] * 10];
       if (view === 'lit') {
         const t = upload(input);
+        const dist = v.distance ?? 'loupe';
+        // Göz / Uzak "malzeme" karakteri (rölyef, melanj, tüy, yayılma, yumuşak kenar) — filtreli ve net yolda aynı
+        if (dist !== 'loupe') v = { ...v, tuning: materialTuning(dist, v.tuning) };
+        // Net çizim ağırlığı: Göz / Uzak'ta algısal filtre ekranda ~1.5 px'i aşınca bulanıklık artmaz, 1.5 → 4 px
+        // arasında net (lup tipi) çizime karışır (viewDistance.sharpBlend). Mobil profil yalnız filtreli yolu kullanır.
+        const wSharp = profile === 'mobile' ? 0 : sharpWeight(dist, ppm);
         // Lup'ta gezinme (pan / zoom) sırasında da filtreli yol: her karede G-buffer + ışık yerine pişirilmiş döşemeden
         // örnekleme (≤ 4 ms hedefi); durunca keskin yol (kendi önbelleğiyle) geri gelir
         const filtered =
-          useFilteredPath(v.distance ?? 'loupe', ppm, minYarnDiameterMm(input)) || (!!v.navigating && profile === 'desktop');
+          dist === 'loupe'
+            ? useFilteredPath(dist, ppm, minYarnDiameterMm(input)) || (!!v.navigating && profile === 'desktop')
+            : wSharp < 1;
+        const drawSharp = (alpha: number) => {
+          const bs = ensureBake(t, input, v, false);
+          const hairTex = v.quality === 'high' ? ensureHair(t, input, v) : null;
+          const { g } = renderScreenGBuffer(input, v);
+          drawLit(t, input, v, g, bs, hairTex, null, [ppm, ppm], offsetMm, alpha);
+        };
         const b = ensureBake(t, input, v, filtered);
         if (b.filtered && b.color) {
-          // Filtreli yol: ön süzülmüş mip'li döşemeden örnekleme (LOD ayak izinden) + uzun periyotlu iplik sapması
+          // Filtreli yol: ön süzülmüş mip'li döşemeden örnekleme (LOD ayak izinden) + yönlü iplik sapması
           const irl = resolveIrregularity(input, v.tuning?.irregularity ?? 1);
           const vt = ensureVariation(irl.seed);
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -945,8 +988,9 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
           setFabricWarp(uv, input, v, true);
           // ton sapması: OKLab ΔE/100 → doğrusal parlaklıkta ≈ 3·ΔL (L³); kalınlık ±% → alan payı ≈ yarısı
           const dv = opts.debugFilter?.bakeVariation ? 0 : 1;
-          gl.uniform2f(uv('uVarAmp'), (dv * 3 * irl.colorDeltaE) / (100 * 1.1489125), dv * 0.5 * irl.thickness);
+          gl.uniform2f(uv('uVarAmp'), (dv * 3 * irl.colorDeltaE * VIEW_TONE_DE_SCALE) / (100 * 1.1489125), dv * 0.5 * irl.thickness);
           gl.drawArrays(gl.TRIANGLES, 0, 3);
+          if (dist !== 'loupe' && wSharp > 0) drawSharp(wSharp);
           return;
         }
         if (profile === 'mobile' && b.color) {
@@ -962,9 +1006,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
           gl.drawArrays(gl.TRIANGLES, 0, 3);
           return;
         }
-        const hairTex = v.quality === 'high' ? ensureHair(t, input, v) : null;
-        const { g } = renderScreenGBuffer(input, v);
-        drawLit(t, input, v, g, b, hairTex, null, [ppm, ppm], offsetMm);
+        drawSharp(1);
         return;
       }
       const { t, g } = renderScreenGBuffer(input, v);

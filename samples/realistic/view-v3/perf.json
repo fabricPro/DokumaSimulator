@@ -1,0 +1,91 @@
+{
+  "gpu": "ANGLE (Intel, Intel(R) HD Graphics 4600 (0x00000412) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "size": 1024,
+  "method": "duvar saati: render + 1 piksel okuma (~1.5 ms okuma payı dahil); medyan, ilk kare hariç",
+  "budgetMs": {
+    "navigation": 4
+  },
+  "expensivePass": {
+    "name": "ekran G-buffer (iplik adayları, rölyef, lif dokusu)",
+    "shareOfSharpFrame": 1
+  },
+  "notes": [
+    "Önbellekte: ao / gölge / tüy (keskin yol), filtreli yol tüm sahneyi pişirilmiş mip döşemesinden örnekler.",
+    "Göz / Uzak gezinmede: σ_px ≤ 1.5 ise yalnız döşeme örneklenir; net çizime geçen zoomlarda (σ_px > 1.5) G-buffer her karede çizilir (net çizim pişirilemez: çözünürlük zoom ile değişir) — gezinirken yarım çözünürlük (RealisticLayer) kullanılır.",
+    "Lup gezinme: filtreli yol; durağan keskin kare tek seferlik."
+  ],
+  "rows": [
+    {
+      "case": "Göz tam rapor, gezinme",
+      "firstMs": 106.9,
+      "medianMs": 7,
+      "p90Ms": 12.5
+    },
+    {
+      "case": "Göz 10 mm (σ 3 px, geçiş), gezinme",
+      "firstMs": 813.3,
+      "medianMs": 22.9,
+      "p90Ms": 33.6
+    },
+    {
+      "case": "Göz 3 mm (net), gezinme",
+      "firstMs": 476,
+      "medianMs": 19.3,
+      "p90Ms": 69
+    },
+    {
+      "case": "Uzak 10 mm (net), gezinme",
+      "firstMs": 508.2,
+      "medianMs": 18.5,
+      "p90Ms": 26.9
+    },
+    {
+      "case": "Lup 100 px/mm, gezinme (filtreli yol)",
+      "firstMs": 741.9,
+      "medianMs": 8.8,
+      "p90Ms": 23.6
+    },
+    {
+      "case": "Lup 100 px/mm, durağan (keskin yol)",
+      "firstMs": 747.5,
+      "medianMs": 43.1,
+      "p90Ms": 44.9
+    },
+    {
+      "case": "Lup keskin geçişler: hücre bulma (flat)",
+      "firstMs": 50,
+      "medianMs": 3.3,
+      "p90Ms": 3.5
+    },
+    {
+      "case": "Lup keskin geçişler: G-buffer + düz gölgeleme (preview)",
+      "firstMs": 53.7,
+      "medianMs": 33.2,
+      "p90Ms": 34.5
+    },
+    {
+      "case": "Lup keskin geçişler: tam (G-buffer + ışık)",
+      "firstMs": 674.8,
+      "medianMs": 18.6,
+      "p90Ms": 20.2
+    }
+  ],
+  "netNavigationByCanvasSize": {
+    "note": "Net çizim (G-buffer her karede) gezinme ms; maliyet piksel sayısıyla orantılı. Uygulama panelleri ~378x534 (0.2 MP) ve gezinirken yarım çözünürlük (0.05 MP) çizer.",
+    "goz213pxmm": {
+      "256": 3.4,
+      "512": 8.1,
+      "1024": 34.2
+    },
+    "goz64pxmm": {
+      "256": 2.6,
+      "512": 7.2,
+      "1024": 22.7
+    },
+    "uzak64pxmm": {
+      "256": 2.5,
+      "512": 6.2,
+      "1024": 20
+    }
+  }
+}
