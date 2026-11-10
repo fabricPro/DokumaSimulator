@@ -1,0 +1,136 @@
+{
+  "gpu": "ANGLE (Intel, Intel(R) HD Graphics 4600 (0x00000412) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "size": 1024,
+  "budgetMs": {
+    "navigation": 4
+  },
+  "note": "Göz / Uzak: pişirilmiş düşük çözünürlüklü renk döşemesi + 3×3 ön filtre; Lup: ekran G-buffer + ışık (uzun raporda görünür pencere pişirilir)",
+  "rows": [
+    {
+      "file": "lhotse-natural",
+      "distance": "eye",
+      "method": "sync-wall",
+      "frameMedianMs": 7.7,
+      "frameWorstMs": 13,
+      "bakeMs": 702.1,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          164,
+          4096
+        ],
+        "ms": 702.1000003814697,
+        "hairStrokes": 29727,
+        "hairMs": 664.1999998092651
+      }
+    },
+    {
+      "file": "lhotse-natural",
+      "distance": "far",
+      "method": "sync-wall",
+      "frameMedianMs": 6.9,
+      "frameWorstMs": 16.6,
+      "bakeMs": 3.6,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          64,
+          1600
+        ],
+        "ms": 3.6000003814697266,
+        "hairStrokes": 29727,
+        "hairMs": 664.1999998092651
+      }
+    },
+    {
+      "file": "lhotse-natural",
+      "distance": "loupe",
+      "method": "sync-wall",
+      "frameMedianMs": 17.9,
+      "frameWorstMs": 26.8,
+      "bakeMs": 0.5,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          492,
+          492
+        ],
+        "ms": 0.5,
+        "hairStrokes": 29727,
+        "hairMs": 664.1999998092651
+      }
+    },
+    {
+      "file": "gardisette-bendix-stripe",
+      "distance": "eye",
+      "method": "sync-wall",
+      "frameMedianMs": 6.7,
+      "frameWorstMs": 9.5,
+      "bakeMs": 398.8,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          206,
+          2544
+        ],
+        "ms": 398.80000019073486,
+        "hairStrokes": 22658,
+        "hairMs": 381.69999980926514
+      }
+    },
+    {
+      "file": "gardisette-bendix-stripe",
+      "distance": "far",
+      "method": "sync-wall",
+      "frameMedianMs": 4.8,
+      "frameWorstMs": 36.3,
+      "bakeMs": 5.4,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          48,
+          592
+        ],
+        "ms": 5.40000057220459,
+        "hairStrokes": 22658,
+        "hairMs": 381.69999980926514
+      }
+    },
+    {
+      "file": "gardisette-bendix-stripe",
+      "distance": "loupe",
+      "method": "sync-wall",
+      "frameMedianMs": 17.5,
+      "frameWorstMs": 401.1,
+      "bakeMs": 0.5,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          332,
+          4096
+        ],
+        "ms": 0.5,
+        "hairStrokes": 22658,
+        "hairMs": 381.69999980926514
+      }
+    }
+  ]
+}

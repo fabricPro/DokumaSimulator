@@ -23,9 +23,11 @@ export interface YarnType {
   plies?: number;
   /**
    * Yapı: 'spun' (varsayılan; eğrilmiş, kesit yuvarlağa yakın, basıklık yalnız sıkışmadan, en/boy ≤ 1.4) ya da
-   * 'tape' (yassı bant / multifilament: en/boy 3, kat oluğu yok).
+   * 'tape' (yassı bant: en/boy 3, kat oluğu yok), 'filament' (düz, bükümsüz / az bükümlü, tüysüz, sıkışmada
+   * belirgin yassılaşır: en/boy ≤ 2), 'textured' (tekstüre: hacimli, mat, büküm görünmez, ince kıvrımlı lif
+   * dokusu, yumuşak kenar).
    */
-  structure?: 'spun' | 'tape';
+  structure?: 'spun' | 'tape' | 'filament' | 'textured';
 }
 
 /** Rapor dizisindeki bir iplik. */
@@ -113,6 +115,8 @@ export interface Tuning {
   background?: 'darkgray' | 'black' | 'backlight';
   /** Kontakt gölge şiddeti (üst iplik → alttaki iplik; 0.4·d genişlik). 0 = kapalı, varsayılan 1. */
   contactShadow?: number;
+  /** İplik yayılması çarpanı (Durak 2-E; 0 = sert yuvarlak kesit, 1 = varsayılan tip modeli). */
+  spread?: number;
   /** Ton eşleme beyaz noktası (pozlama sonrası doğrusal; küçük = daha erken sıkıştırır). Varsayılan 2. */
   whitePoint?: number;
 }
@@ -125,6 +129,11 @@ export interface ViewParams {
   light: { azimuthDeg: number; elevationDeg: number };
   quality: Quality;
   tuning?: Tuning;
+  /**
+   * Bakış mesafesi (viewDistance.ts): 'eye' Göz 40 cm, 'far' Uzak 2 m — fiziksel ölçek + gözün çözemeyeceği detayın
+   * ön filtresi (pxPerCm'i çağıran fiziksel ölçeğe göre verir); 'loupe' (varsayılan) gerçekçi yakın görünüm.
+   */
+  distance?: 'eye' | 'far' | 'loupe';
 }
 
 /** Son karelerin süre ölçümü (Faz 6). */
@@ -153,7 +162,7 @@ export interface RealisticRenderer {
   /** Hata ayıklama / snapshot: son karenin RGBA pikselleri (alttan yukarı satırlar, GL düzeni). */
   readPixels(): Uint8Array;
   /** Hata ayıklama: G-buffer (gb0 = yükseklik, u, v, kimlik; gb1 = normal.xy, kaplama, a). GL düzeni. */
-  readGBuffer(): { width: number; height: number; gb0: Float32Array; gb1: Float32Array };
+  readGBuffer(): { width: number; height: number; gb0: Float32Array; gb1: Float32Array; gb3?: Float32Array };
 }
 
 export interface RendererOptions {

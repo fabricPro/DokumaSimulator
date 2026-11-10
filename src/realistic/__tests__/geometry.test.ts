@@ -271,6 +271,6 @@ describe('v2 temas tabanlı z (fix-v3)', () => {
     expect(flatteningV2(0.2, 0.5)).toBe(1);
     expect(flatteningV2(0.5, 0.5)).toBeCloseTo(1 + 0.8 * 0.2, 12);
     expect(flatteningV2(2, 0.5)).toBe(1.4);
-    expect(flatteningV2(0.2, 0.5, 1, true)).toBe(3);
+    expect(flatteningV2(0.2, 0.5, 1, 'tape')).toBe(3);
   });
 });

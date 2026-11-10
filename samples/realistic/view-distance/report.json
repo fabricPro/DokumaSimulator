@@ -1,0 +1,47 @@
+{
+  "note": "Görsel açıklık = zemin görünen piksel oranı (üst katman kapsaması + alt katmanın kenar kapsaması), 40 px/mm, üç pencere ortalaması. Metrik açıklık = 100 − örtme (metrics.ts, Peirce: mamul sıklığı × yuvarlak çap).",
+  "acceptance": "yayılma açıkken |görsel − metrik| ≤ 3 puan",
+  "allWithin3": true,
+  "rows": [
+    {
+      "name": "lhotse-natural",
+      "metricPct": 44.9,
+      "visualRigidPct": 45.6,
+      "visualSpreadPct": 43.6,
+      "diffSpread": -1.3,
+      "within3": true
+    },
+    {
+      "name": "gardisette-bendix-stripe",
+      "metricPct": 26.6,
+      "visualRigidPct": 26.9,
+      "visualSpreadPct": 24.7,
+      "diffSpread": -1.9,
+      "within3": true
+    },
+    {
+      "name": "acik-coklu-atki",
+      "metricPct": 45.7,
+      "visualRigidPct": 46,
+      "visualSpreadPct": 45.5,
+      "diffSpread": -0.2,
+      "within3": true
+    },
+    {
+      "name": "varsayilan-ornek",
+      "metricPct": 20.8,
+      "visualRigidPct": 21.2,
+      "visualSpreadPct": 19.1,
+      "diffSpread": -1.7,
+      "within3": true
+    },
+    {
+      "name": "banded-warp",
+      "metricPct": 5.2,
+      "visualRigidPct": 11.4,
+      "visualSpreadPct": 7.7,
+      "diffSpread": 2.5,
+      "within3": true
+    }
+  ]
+}

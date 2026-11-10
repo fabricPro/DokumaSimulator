@@ -67,11 +67,87 @@ export const FLOAT_RUN_MAX = 16;
 export const BG_MARGIN = 0.6;
 export type GeometryModel = 'classic' | 'v2';
 
-/** v2 kesit basıklığı (en/boy). factor: Tuning.flattening. */
-export function flatteningV2(diameterMm: number, pitchMm: number, factor = 1, tape = false): number {
-  if (tape) return TAPE_ASPECT;
+/** VARSAYIM: filament sıkışmada belirgin yassılaşır — üst sınır 2.0 (eğrilmiş / tekstüre 1.4). */
+export const FILAMENT_FLATTEN_MAX = 2.0;
+
+/** v2 kesit basıklığı (en/boy). factor: Tuning.flattening; structure: iplik yapısı (YarnType.structure). */
+export function flatteningV2(diameterMm: number, pitchMm: number, factor = 1, structure?: string): number {
+  if (structure === 'tape') return TAPE_ASPECT;
   const k = 1 + factor * V2_FLATTEN_SLOPE * Math.max(0, diameterMm / pitchMm - V2_FLATTEN_START);
-  return Math.min(V2_FLATTEN_MAX, Math.max(1, k));
+  return Math.min(structure === 'filament' ? FILAMENT_FLATTEN_MAX : V2_FLATTEN_MAX, Math.max(1, k));
+}
+
+/**
+ * İplik yayılması (Durak 2-E): kesit, komşu aralığı ve sıkışmaya göre genişler; yüksekliği alanı (hacmi) koruyacak
+ * şekilde azalır (a = r·√A, b = r/√A, A = en/boy). Sert yuvarlak çubuk modelinde sık dokuda iplik konum / kalınlık
+ * düzensizliği boşluk açıyor, görsel açıklık örtme metriğinden büyük çıkıyordu (bantlı çözgü +6 puan).
+ * İki bileşen (d/p = doluluk f):
+ *  1) bağlantı basıncıyla yayılma: w₁ = d·(1 + (S_tip − 1)·smoothstep((f − 0.2) / 0.5));
+ *  2) sık dokuda komşu boşluğunu kapatma: w = w₁ + (0.98·p − w₁)·C_tip·smoothstep((F − 0.6) / 0.25),
+ *     F = max(kendi sisteminin doluluğu, çapraz sistemin ortalama doluluğu): sıkışma kumaşın iki yönüne birlikte
+ *     bağlı (bantlı çözgüde çözgü 0.84 iken atkı 0.67); sıkışan iplik komşusuna doğru ezilir.
+ * VARSAYIM (kalibre edilecek; demo desenler + bantlı çözgü + açık doku için görsel açıklık ↔ metrik ±3 puanla seçildi):
+ *   S_tip: filament 1.30, tekstüre 1.22, tek katlı eğrilmiş 1.06, çok katlı eğrilmiş 1.04 (bükümlü katlar en az), bant 1;
+ *   C_tip: filament 0.9, tekstüre 0.8, tek katlı 0.7, çok katlı 0.6.
+ * Toplam en/boy = sıkışma basıklığı k · (w/d)², tipe göre üst sınır (eğrilmiş 1.6, tekstüre 1.8, filament 2.4, bant 3);
+ * genişlik iplik aralığını aşmaz (≤ max(0.98·p, d)).
+ */
+export const SPREAD_MAX: Record<SpreadKind, number> = { filament: 1.3, textured: 1.22, spunSingle: 1.06, spunPlied: 1.04, tape: 1 };
+export const SPREAD_CLOSE: Record<SpreadKind, number> = { filament: 0.9, textured: 0.8, spunSingle: 0.7, spunPlied: 0.6, tape: 0 };
+type SpreadKind = 'filament' | 'textured' | 'spunSingle' | 'spunPlied' | 'tape';
+const ASPECT_CAP: Record<string, number> = { spun: 1.6, textured: 1.8, filament: 2.4, tape: TAPE_ASPECT };
+
+function spreadKind(structure?: string, plies = 2): SpreadKind {
+  if (structure === 'filament' || structure === 'textured' || structure === 'tape') return structure;
+  return plies > 1 ? 'spunPlied' : 'spunSingle';
+}
+
+/** Yayılma oranı w/d (kesit genişliği / yuvarlak çap). */
+export function spreadFactor(
+  diameterMm: number,
+  pitchMm: number,
+  structure?: string,
+  plies = 2,
+  spreadMul = 1,
+  crossFill = 0,
+): number {
+  const kind = spreadKind(structure, plies);
+  const m = Math.max(0, spreadMul);
+  const f = diameterMm / pitchMm;
+  const F = Math.max(f, crossFill);
+  const w1 = diameterMm * (1 + m * (SPREAD_MAX[kind] - 1) * smoothstep01((f - 0.2) / 0.5));
+  const w = w1 + Math.max(0, 0.98 * pitchMm - w1) * Math.min(1, m * SPREAD_CLOSE[kind]) * smoothstep01((F - 0.6) / 0.25);
+  return w / diameterMm;
+}
+
+/** Sistemlerin ortalama doluluğu (çap / aralık; rapor dizisi boyunca ortalama): [çözgü, atkı]. */
+export function systemFill(input: FabricInput): [number, number] {
+  const d = (t: number) => {
+    const y = input.yarnTypes[t];
+    return diameterMm(toTex(y.count, y.unit), y.yarnDensity ?? DEFAULT_YARN_DENSITY);
+  };
+  const mean = (list: FabricInput['warp']) => list.reduce((a, t) => a + d(t.yarnType), 0) / Math.max(1, list.length);
+  return [mean(input.warp) / pitchMm(input.density.warpPerCm), mean(input.weft) / pitchMm(input.density.weftPerCm)];
+}
+
+/** Kesit en/boy oranı A (sıkışma basıklığı × yayılma²), tip üst sınırı ve aralık sınırıyla. */
+export function crossSectionAspect(
+  diameterMm: number,
+  pitchMm: number,
+  flattenFactor = 1,
+  structure?: string,
+  plies = 2,
+  spreadMul = 1,
+  crossFill = 0,
+): number {
+  if (structure === 'tape') return TAPE_ASPECT;
+  const k = flatteningV2(diameterMm, pitchMm, flattenFactor, structure);
+  const s = spreadFactor(diameterMm, pitchMm, structure, plies, spreadMul, crossFill);
+  let A = Math.min(k * s * s, ASPECT_CAP[structure ?? 'spun'] ?? 1.6);
+  // genişlik d·√A aralığı aşmasın (iplik zaten aralıktan kalınsa yalnız yayılmaz)
+  const wMax = Math.max(0.98 * pitchMm, diameterMm);
+  if (diameterMm * Math.sqrt(A) > wMax) A = (wMax / diameterMm) ** 2;
+  return Math.max(A, 1);
 }
 
 /**
@@ -352,6 +428,7 @@ export function geometryParamsFromInput(
   flattenFactor = 1,
   irregularityMul = 1,
   model: GeometryModel = 'classic',
+  spreadMul = 1,
 ): GeometryParams {
   const radiusOfType = input.yarnTypes.map((y) => diameterMm(toTex(y.count, y.unit), y.yarnDensity ?? DEFAULT_YARN_DENSITY) / 2);
   const warpR = input.warp.map((t) => radiusOfType[t.yarnType]);
@@ -375,10 +452,11 @@ export function geometryParamsFromInput(
   };
   if (model !== 'v2') return base;
   // Kesit basıklığı iplik tipine ve kendi sisteminin aralığına bağlı (shader: yarnFlat)
-  const kOf = (t: number, p: number) =>
-    flatteningV2(2 * radiusOfType[t], p, flattenFactor, input.yarnTypes[t].structure === 'tape');
-  const kW = input.warp.map((t) => kOf(t.yarnType, pw));
-  const kF = input.weft.map((t) => kOf(t.yarnType, pf));
+  const [fillW, fillF] = systemFill(input);
+  const kOf = (t: number, p: number, crossFill: number) =>
+    crossSectionAspect(2 * radiusOfType[t], p, flattenFactor, input.yarnTypes[t].structure, input.yarnTypes[t].plies ?? 2, spreadMul, crossFill);
+  const kW = input.warp.map((t) => kOf(t.yarnType, pw, fillF));
+  const kF = input.weft.map((t) => kOf(t.yarnType, pf, fillW));
   const beta = input.crimpShare ?? V2_CRIMP_SHARE;
   return {
     ...base,

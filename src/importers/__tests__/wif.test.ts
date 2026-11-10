@@ -209,8 +209,9 @@ describe('FabricSpec JSON', () => {
 });
 
 describe('.atki.json', () => {
-  it('yalnızca arayüz var, parse TODO', () => {
+  it('uzantı kontrolü; geçersiz içerik anlaşılır hata (ayrıntı: adapters/__tests__/atkiJson.test.ts)', () => {
     expect(atkiJsonImporter.accepts('kumas.atki.json')).toBe(true);
-    expect(() => atkiJsonImporter.parse('{}')).toThrow(/TODO/);
+    expect(atkiJsonImporter.accepts('kumas.json')).toBe(false);
+    expect(() => atkiJsonImporter.parse('{}')).toThrow(/atki\.json/);
   });
 });

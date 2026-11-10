@@ -1,4 +1,5 @@
 import type { ReedSpec } from './reed/types';
+import type { IplikTanimi } from '../adapters/iplik';
 
 /**
  * Render motorunun genel tipleri.
@@ -32,6 +33,9 @@ export interface YarnSlot {
   yarnDensity?: number;
   /** Büküm yönü; referansın çizdiği yön S'dir. */
   twist: 'S' | 'Z';
+  /** Bağlı iplik tanımı (`FabricSpec.yarns` içinde id). Varsa count / system ondan aynalanır; gerçekçi mod tip,
+   *  kat, parlaklık, tüylülük ve bükümü buradan alır. */
+  yarnId?: string;
 }
 
 export interface FabricSpec {
@@ -60,6 +64,8 @@ export interface FabricSpec {
   relax?: { c?: number; rho?: number; rhoWeft?: number };
   /** Atkı sıklık raporu: atkı başına tezgah adım çarpanı (ör. [1,1,1,3]); boşsa eşit adım. */
   weftDensityReport?: number[];
+  /** İplik tanımları (id ile slotlardan referans; .atki.json demoları). Yoksa eski slot modeli. */
+  yarns?: IplikTanimi[];
 }
 
 /** v1 FabricSpec (eski JSON'lar; yalnız geriye uyumlu okuma için). */

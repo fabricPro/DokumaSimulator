@@ -13,7 +13,8 @@
 import { createProgram, createTexture, hasRequiredExtensions, type AnyCanvas } from './gl/context';
 import { FLAT_FS, FULLSCREEN_VS } from './gl/shaders/flat.glsl';
 import { GBUFFER_FS, PREVIEW_FS } from './gl/shaders/gbuffer.glsl';
-import { LIT_FS, OCCLUSION_FS, TILE_FS } from './gl/shaders/lit.glsl';
+import { LIT_FS, OCCLUSION_FS, TILE_FS, VIEW_FS } from './gl/shaders/lit.glsl';
+import { viewBakeDensity, viewBlurMm } from './viewDistance';
 import { EXPOSURE, LUSTER_KK_MUL, LUSTER_ORDER, QUALITY_SAMPLES } from './surface';
 import { bakeFiberNoise, FIBER_TEX_SIZE, FIBER_TEXELS_PER_D } from './fiberNoise';
 import { crossingTable, geometryParamsFromInput, v2BgHeight, V2_CRIMP_SHARE } from './geometry';
@@ -61,10 +62,16 @@ interface Bake {
   tile: TileInfo;
   /** (ao, gölge) döşemesi. */
   occ: WebGLTexture;
-  /** Mobil: ışıklı sahne döşemesi. */
+  /** Mobil / Göz / Uzak: ışıklı sahne döşemesi (sRGB, mip'li). */
   color: WebGLTexture | null;
   size: [number, number];
   ms: number;
+  /** Pişirilen bölge (mm): tüm döşeme ya da (lup, uzun rapor) görünür pencere. */
+  origin: [number, number];
+  span: [number, number];
+  windowed: boolean;
+  /** texel / mm. */
+  density: number;
 }
 
 interface HairBake {
@@ -138,6 +145,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
   const occProg = createProgram(gl, FULLSCREEN_VS, OCCLUSION_FS);
   const litProg = createProgram(gl, FULLSCREEN_VS, LIT_FS);
   const tileProg = createProgram(gl, FULLSCREEN_VS, TILE_FS);
+  const viewProg = createProgram(gl, FULLSCREEN_VS, VIEW_FS);
   const vao = gl.createVertexArray();
   const uniforms = (p: WebGLProgram) => (n: string) => gl.getUniformLocation(p, n);
   const uf = uniforms(flatProg);
@@ -146,6 +154,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
   const uo = uniforms(occProg);
   const ul = uniforms(litProg);
   const ut = uniforms(tileProg);
+  const uv = uniforms(viewProg);
   let tex: Uploaded | null = null;
   let gbuf: GBuffer | null = null;
   let bake: Bake | null = null;
@@ -266,10 +275,11 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
   };
 
   /** Doğrusal süzgeçli, sarmalı RGBA8 hedef (döşeme). */
-  const makeTarget = (w: number, h: number, mip: boolean): { tex: WebGLTexture; fbo: WebGLFramebuffer } => {
+  /** `srgb`: renk döşemesi SRGB8_ALPHA8 (mip ortalaması ve örnekleme doğrusal uzayda). */
+  const makeTarget = (w: number, h: number, mip: boolean, srgb = false): { tex: WebGLTexture; fbo: WebGLFramebuffer } => {
     const t = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, t);
-    if (mip) gl.texStorage2D(gl.TEXTURE_2D, Math.floor(Math.log2(Math.max(w, h))) + 1, gl.RGBA8, w, h);
+    if (mip) gl.texStorage2D(gl.TEXTURE_2D, Math.floor(Math.log2(Math.max(w, h))) + 1, srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8, w, h);
     else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mip ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -301,13 +311,14 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
   const ensureCross = (t: Uploaded, input: FabricInput, v: ViewParams): NonNullable<Uploaded['cross']> => {
     const irr = v.tuning?.irregularity ?? 1;
     const fl = v.tuning?.flattening ?? 1;
-    const key = `${irr}|${fl}`;
+    const sp = v.tuning?.spread ?? 1;
+    const key = `${irr}|${fl}|${sp}`;
     if (t.cross && t.cross.key === key) return t.cross;
     if (t.cross) for (const x of [t.cross.tex, t.cross.threads, t.cross.colors]) gl.deleteTexture(x);
     const [px, py] = t.tile.threads;
-    const data = crossingTable(geometryParamsFromInput(input, fl, irr, 'v2'), px, py);
+    const data = crossingTable(geometryParamsFromInput(input, fl, irr, 'v2', sp), px, py);
     const cx = createTexture(gl, gl.RG32F, px, py, gl.RG, gl.FLOAT, data);
-    const th = threadTable(input, [px, py], irr, fl);
+    const th = threadTable(input, [px, py], irr, fl, sp);
     const tt = createTexture(gl, gl.RGBA32F, th.width, 8, gl.RGBA, gl.FLOAT, th.data);
     // En geniş kesit yarı genişliği a = r·√k (satır 0 / 4: (r, kayma, k, d))
     let halfWidthMax = 0;
@@ -405,6 +416,10 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     bindTex(0, g.gb0, ul('uGb0'));
     bindTex(1, g.gb1, ul('uGb1'));
     bindTex(2, b.occ, ul('uOccTile'));
+    gl.uniform1i(ul('uOccWindowed'), b.windowed ? 1 : 0);
+    gl.uniform2f(ul('uOccOrigin'), b.origin[0], b.origin[1]);
+    gl.uniform2f(ul('uOccSpan'), b.span[0], b.span[1]);
+    gl.uniform1i(ul('uLinearOut'), target ? 1 : 0);
     bindTex(3, t.warpColor, ul('uWarpColor'));
     bindTex(4, t.weftColor, ul('uWeftColor'));
     bindTex(5, t.warpType, ul('uWarpType'));
@@ -506,10 +521,21 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     return tx;
   };
 
-  /** Döşeme pişirme: anahtar değişmedikçe yeniden yapılmaz (pan / zoom anahtara girmez). */
+  /**
+   * Döşeme pişirme: anahtar değişmedikçe yeniden yapılmaz (pan / zoom anahtara girmez).
+   *  - Lup (masaüstü): ao / gölge tüm döşemeye. Uzun raporda (LHOTSE ~40 cm) döşeme lup çözünürlüğüne sığmıyorsa
+   *    yalnız görünür pencere (×2, kenar payı) pişirilir; görünüm pencereden çıkınca yeniden.
+   *  - Göz / Uzak: tüm rapor DÜŞÜK çözünürlükte (filtre çekirdeğini çözecek kadar, ≤ 24 texel/mm) ışıklı renk
+   *    döşemesine pişirilir; ekranda ön filtreyle gösterilir.
+   *  - Mobil: tüm ışıklı sahne döşemeye (değişmedi).
+   */
   const ensureBake = (t: Uploaded, input: FabricInput, v: ViewParams): Bake => {
     const q = QUALITY_SAMPLES[v.quality] ?? QUALITY_SAMPLES.medium;
     const tn = v.tuning ?? {};
+    const distance = v.distance ?? 'loupe';
+    const viewMode = distance !== 'loupe';
+    const colorBake = profile === 'mobile' || viewMode;
+    const tile = t.tile;
     const key = JSON.stringify([
       t.version,
       v.light.azimuthDeg,
@@ -520,24 +546,56 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       tn.relief ?? 1,
       tn.model ?? 'v2',
       tn.flattening ?? 1,
+      tn.spread ?? 1,
       tn.contactShadow ?? 1,
-      profile === 'mobile'
+      distance,
+      colorBake
         ? [tn.hairiness ?? 1, tn.specularStrength ?? 1, tn.specularWidth ?? 1, tn.melange ?? 1, tn.background ?? 'darkgray', tn.whitePoint ?? 2]
         : 0,
     ]);
-    if (bake && bake.key === key) return bake;
+    // Bölge ve yoğunluk
+    let origin: [number, number] = [0, 0];
+    let span: [number, number] = [tile.mm[0], tile.mm[1]];
+    let windowed = false;
+    let D: number;
+    if (viewMode) {
+      D = Math.min(viewBakeDensity(viewBlurMm(distance, input)), bakeMaxSide / Math.max(tile.mm[0], tile.mm[1]));
+    } else if (profile === 'mobile') {
+      D = bakeDensity(tile, input, bakeMaxSide, 16, 48);
+    } else {
+      D = bakeDensity(tile, input, bakeMaxSide, 16, 64);
+      const want = bakeDensity(tile, input, Infinity, 16, 64);
+      if (D < 0.6 * want) {
+        // Görünür pencere (mm), kumaş koordinatında
+        const ppm = v.pxPerCm / 10;
+        const vx = v.offsetCm[0] * 10;
+        const vy = v.offsetCm[1] * 10;
+        const vw = canvas.width / ppm;
+        const vh = canvas.height / ppm;
+        if (bake && bake.key === key && bake.windowed && vx >= bake.origin[0] && vy >= bake.origin[1] &&
+            vx + vw <= bake.origin[0] + bake.span[0] && vy + vh <= bake.origin[1] + bake.span[1]) {
+          return bake;
+        }
+        windowed = true;
+        D = want;
+        const pMax = Math.max(pitchMm(input.density.warpPerCm), pitchMm(input.density.weftPerCm));
+        span = [Math.max(2 * vw, 8 * pMax), Math.max(2 * vh, 8 * pMax)];
+        D = Math.min(D, bakeMaxSide / Math.max(span[0], span[1]));
+        // köken texel ızgarasına oturtulur (pencere değişince desen kaymasın)
+        origin = [Math.floor((vx + vw / 2 - span[0] / 2) * D) / D, Math.floor((vy + vh / 2 - span[1] / 2) * D) / D];
+      }
+    }
+    if (!windowed && bake && bake.key === key) return bake;
     freeBake();
     const t0 = performance.now();
-    const tile = t.tile;
-    const D = bakeDensity(tile, input, bakeMaxSide, 16, profile === 'mobile' ? 48 : 64);
-    const w = Math.max(8, Math.round(tile.mm[0] * D));
-    const h = Math.max(8, Math.round(tile.mm[1] * D));
-    const ppmXY: [number, number] = [w / tile.mm[0], h / tile.mm[1]];
+    const w = Math.max(8, Math.round(span[0] * D));
+    const h = Math.max(8, Math.round(span[1] * D));
+    const ppmXY: [number, number] = [w / span[0], h / span[1]];
     const ppm = Math.sqrt(ppmXY[0] * ppmXY[1]);
-    // 1) döşeme G-buffer'ı (yarım hassasiyet, sarmalı)
-    const g = makeGBuffer(w, h, true, true);
-    drawGBuffer(t, input, v, g, ppmXY, [0, 0], true);
-    // 2) AO + gölge (sarmalı komşuluk)
+    // 1) G-buffer (yarım hassasiyet; tüm döşemede sarmalı)
+    const g = makeGBuffer(w, h, true, !windowed);
+    drawGBuffer(t, input, v, g, ppmXY, origin, true);
+    // 2) AO + gölge (döşemede sarmalı komşuluk, pencerede kenara kıskaç)
     const occ = makeTarget(w, h, false);
     gl.bindFramebuffer(gl.FRAMEBUFFER, occ.fbo);
     gl.viewport(0, 0, w, h);
@@ -553,15 +611,15 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     gl.uniform1i(uo('uShadowSteps'), q.shadow);
     gl.uniform3fv(uo('uLightDir'), lightDirection(v.light.azimuthDeg, v.light.elevationDeg));
     gl.uniform1f(uo('uRRef'), t.rMax);
-    gl.uniform1i(uo('uWrap'), 1);
+    gl.uniform1i(uo('uWrap'), windowed ? 0 : 1);
     gl.uniform1f(uo('uContact'), tn.contactShadow ?? 1);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.deleteFramebuffer(occ.fbo);
-    const b: Bake = { key, tile, occ: occ.tex, color: null, size: [w, h], ms: 0 };
-    // 3) mobil: tüm ışıklı sahne döşemeye
-    if (profile === 'mobile') {
+    const b: Bake = { key, tile, occ: occ.tex, color: null, size: [w, h], ms: 0, origin, span, windowed, density: ppm };
+    // 3) mobil / Göz / Uzak: tüm ışıklı sahne döşemeye (sRGB, mip'li)
+    if (colorBake) {
       const hairTex = v.quality === 'high' ? ensureHair(t, input, v) : null;
-      const col = makeTarget(w, h, true);
+      const col = makeTarget(w, h, true, true);
       drawLit(t, input, v, g, b, hairTex, col.fbo, ppmXY, [0, 0]);
       gl.bindTexture(gl.TEXTURE_2D, col.tex);
       gl.generateMipmap(gl.TEXTURE_2D);
@@ -603,6 +661,21 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       if (view === 'lit') {
         const t = upload(input);
         const b = ensureBake(t, input, v);
+        if ((v.distance ?? 'loupe') !== 'loupe' && b.color) {
+          // Göz / Uzak: fiziksel ölçek + ön filtre (viewDistance.ts)
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          gl.useProgram(viewProg);
+          gl.bindVertexArray(vao);
+          bindTex(0, b.color, uv('uColorTile'));
+          gl.uniform2f(uv('uTileMm'), b.tile.mm[0], b.tile.mm[1]);
+          gl.uniform2f(uv('uOffsetMm'), offsetMm[0], offsetMm[1]);
+          gl.uniform2f(uv('uPxPerMmXY'), ppm, ppm);
+          gl.uniform1f(uv('uSigmaMm'), viewBlurMm(v.distance as 'eye' | 'far', input));
+          gl.uniform1f(uv('uTexPerMm'), b.density);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+          return;
+        }
         if (profile === 'mobile' && b.color) {
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
           gl.viewport(0, 0, canvas.width, canvas.height);
@@ -653,8 +726,11 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       gl.readPixels(0, 0, gbuf.width, gbuf.height, gl.RGBA, gl.FLOAT, gb0);
       gl.readBuffer(gl.COLOR_ATTACHMENT1);
       gl.readPixels(0, 0, gbuf.width, gbuf.height, gl.RGBA, gl.FLOAT, gb1);
+      const gb3 = new Float32Array(n);
+      gl.readBuffer(gl.COLOR_ATTACHMENT3);
+      gl.readPixels(0, 0, gbuf.width, gbuf.height, gl.RGBA, gl.FLOAT, gb3);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      return { width: gbuf.width, height: gbuf.height, gb0, gb1 };
+      return { width: gbuf.width, height: gbuf.height, gb0, gb1, gb3 };
     },
     dispose() {
       if (disposed) return;
@@ -666,7 +742,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       gbuf = null;
       freeBake();
       freeHair();
-      for (const p of [flatProg, gbProg, prevProg, occProg, litProg, tileProg]) gl.deleteProgram(p);
+      for (const p of [flatProg, gbProg, prevProg, occProg, litProg, tileProg, viewProg]) gl.deleteProgram(p);
       gl.deleteVertexArray(vao);
       gl.deleteTexture(fiberTex);
       gl.deleteTexture(emptyTex);

@@ -157,6 +157,10 @@ uniform float uWhite;           // ton eşlemede beyaz noktası (pozlama sonras�
 uniform sampler2D uThreads;     // iplik tablosu (pack.ts threadTable): basıklık k
 uniform sampler2D uThreadColor; // RGBA32F, döşeme periyodu × 2 (çözgü, atkı): doğrusal albedo
 uniform sampler2D uOccTile;     // pişirilmiş (ao, gölge) döşemesi, LINEAR + REPEAT
+uniform int uOccWindowed;       // 1: lup'ta uzun rapor — yalnız görünür pencere pişirildi (köken / boy mm)
+uniform vec2 uOccOrigin;
+uniform vec2 uOccSpan;
+uniform int uLinearOut;         // 1: sRGB doku hedefine (renk döşemesi) doğrusal çıkış; donanım sRGB'ye kodlar
 uniform sampler2D uHairTile;    // pişirilmiş tüy katmanı (önçarpımlı RGBA), mip'li + REPEAT
 uniform int uHairOn;            // yüksek kalitede 1
 uniform float uMelange;         // melanj genliği çarpanı (1 = prototip ±%10 / ±%5)
@@ -255,7 +259,7 @@ void main() {
   // AO ve gölge: pişirilmiş döşemeden (kumaş uzayı, mm mod döşeme; doğrusal süzgeç yumuşatır)
   vec2 mm = uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY;
   vec2 tuv = mm / uTileMm;
-  vec2 occ = texture(uOccTile, tuv).xy;
+  vec2 occ = texture(uOccTile, uOccWindowed == 1 ? (mm - uOccOrigin) / uOccSpan : tuv).xy;
   float ao = occ.x;
   float sh = occ.y;
   // İplik pikselinde AO tabanı: alttaki iplik kararır ama kaybolmaz (açık doku)
@@ -337,20 +341,65 @@ void main() {
     vec3 hl = uBg == 2 ? toLinear(hair.rgb / hair.a) * 0.06 : toLinear(hair.rgb / hair.a) * lightFlat;
     outS = mix(outS, clamp(toSrgb(tone(hl * uExposure)) * 1.05 + 4.0 / 255.0, 0.0, 1.0), hair.a);
   }
-  outColor = vec4(outS, 1.0);
+  outColor = vec4(uLinearOut == 1 ? toLinear(outS) : outS, 1.0);
 }
 `;
 
-/** Mobil profil: tüm sahne döşemeye pişirildi; her karede yalnız döşenip gösterilir (mm mod döşeme). */
+const SRGB_GLSL = /* glsl */ `
+vec3 toSrgb(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+`;
+
+/**
+ * Mobil profil: tüm sahne döşemeye pişirildi; her karede yalnız döşenip gösterilir (mm mod döşeme).
+ * Renk döşemesi sRGB dokudur (SRGB8_ALPHA8): örnekleme ve mip ortalaması doğrusal uzayda, çıkışta sRGB'ye kodlanır.
+ */
 export const TILE_FS = /* glsl */ `#version 300 es
 precision highp float;
-uniform sampler2D uColorTile;   // sRGB RGBA8, mip'li + REPEAT
+uniform sampler2D uColorTile;   // sRGB8_ALPHA8, mip'li + REPEAT (örnekleme doğrusal döner)
 uniform vec2 uTileMm;
 uniform vec2 uOffsetMm;
 uniform vec2 uPxPerMmXY;
 out vec4 outColor;
+${SRGB_GLSL}
 void main() {
   vec2 mm = uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY;
-  outColor = vec4(texture(uColorTile, mm / uTileMm).rgb, 1.0);
+  outColor = vec4(toSrgb(texture(uColorTile, mm / uTileMm).rgb), 1.0);
+}
+`;
+
+/**
+ * Göz / Uzak bakış (viewDistance.ts): fiziksel ölçekte, gözün çözemeyeceği detay önceden süzülür. Pişirilmiş
+ * ışıklı renk döşemesinden (sRGB doku → doğrusal örnekleme) 3×3 Gauss (aralık σ) × mip seviyesi (texel ≈ σ/2):
+ * renk karışımı doğrusal uzayda, sonra sRGB. Piksel ayak izi σ'dan büyükse mip ayak izine çıkar (aliasing yok).
+ */
+export const VIEW_FS = /* glsl */ `#version 300 es
+precision highp float;
+uniform sampler2D uColorTile;
+uniform vec2 uTileMm;
+uniform vec2 uOffsetMm;
+uniform vec2 uPxPerMmXY;
+uniform float uSigmaMm;         // ön filtre σ (mm)
+uniform float uTexPerMm;        // döşeme yoğunluğu (texel / mm)
+out vec4 outColor;
+${SRGB_GLSL}
+void main() {
+  vec2 mm = uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY;
+  vec2 uv = mm / uTileMm;
+  float pixTex = uTexPerMm / min(uPxPerMmXY.x, uPxPerMmXY.y);
+  float lod = max(0.0, max(log2(max(uSigmaMm * uTexPerMm * 0.5, 1e-3)), log2(max(pixTex, 1e-3))));
+  vec2 st = uSigmaMm / uTileMm;
+  vec3 acc = vec3(0.0);
+  float wsum = 0.0;
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      float w = exp(-0.5 * float(i * i + j * j));
+      acc += w * textureLod(uColorTile, uv + vec2(float(i), float(j)) * st, lod).rgb;
+      wsum += w;
+    }
+  }
+  outColor = vec4(toSrgb(acc / wsum), 1.0);
 }
 `;

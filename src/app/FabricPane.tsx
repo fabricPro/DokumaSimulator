@@ -4,7 +4,7 @@ import { DENT_BAND, LINK_BAND, drawReedStrip, type ReedStripInfo } from './reedS
 export type { ReedStripInfo } from './reedStrip';
 import type { PhysicalInfo } from '../render-engine/worker';
 import { imageToCanvas, RenderClient } from './renderClient';
-import type { BackgroundPref, QualityPref } from './RealisticLayer';
+import type { BackgroundPref, DistancePref, QualityPref } from './RealisticLayer';
 
 /** Gerçekçi katman ayrı parça: yalnız "Gerçekçi" açılınca yüklenir (gerçekçi modülle birlikte). */
 const RealisticLayer = lazy(() => import('./RealisticLayer'));
@@ -20,6 +20,8 @@ export const LOUPE_ZOOM = 4;
 export interface RealisticOptions {
   quality: QualityPref;
   background: BackgroundPref;
+  /** Göz / Uzak: gerçekçi katman tüm panelde (büyüteç değil), fiziksel ölçekte. */
+  distance: DistancePref;
   /** 'finished': mamul paneli (ortalama mamul sıklığı). */
   densities: 'loom' | 'finished';
   /** Destek yok / bağlam kaybı: uygulama düğmeyi kapatır, CPU render sürer. */
@@ -367,7 +369,7 @@ export function FabricPane({
     const rectW = renderWindow ? Math.min(renderWindow.widthMm * ppm, fabricW) : fabricW;
     const rectH = renderWindow ? Math.min(renderWindow.heightMm * ppm, h) : h;
     const bottom = bandH + (renderWindow ? (h + rectH) / 2 : h);
-    if (ppm >= REALISTIC_FULL_PPM) {
+    if (ppm >= REALISTIC_FULL_PPM || realistic.distance !== 'loupe') {
       layer = { rect: { left: leftW, top: bottom - rectH, width: rectW, height: rectH }, originMm: [ox, oy], ppm, loupe: false };
     } else if (hover && hover.x >= leftW && hover.x <= leftW + rectW && hover.y >= bottom - rectH && hover.y <= bottom) {
       const ppmL = ppm * LOUPE_ZOOM;
@@ -418,6 +420,7 @@ export function FabricPane({
             loupe={layer?.loupe ?? true}
             quality={realistic.quality}
             background={realistic.background}
+            distance={realistic.distance}
             onState={(s) => {
               if (!s.ok) realistic.onUnavailable();
               setRealText(s.text);

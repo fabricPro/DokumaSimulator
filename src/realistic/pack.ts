@@ -6,17 +6,21 @@
  *  - warpColors / weftColors: RGBA8, n × 1 (sRGB renk, alfa 255).
  *  - warpTypes / weftTypes: R8UI, n × 1 (yarnTypes indeksi).
  *  - yarnTypes: RGBA32F, m × 2: satır 0 (çap mm, büküm tur/mm işaretli: S = −, Z = +, parlaklık 0/1/2, tüylülük);
- *    satır 1 (kat sayısı, yapı 0 eğrilmiş / 1 yassı bant, 0, 0) — fix-v3.
+ *    satır 1 (kat sayısı, yapı kodu STRUCTURE_CODE, 0, 0).
  */
 import { DEFAULT_YARN_DENSITY, diameterMm, toTex } from './yarn';
-import { flatteningV2 } from './geometry';
+import { crossSectionAspect, systemFill } from './geometry';
 import { threadRand } from './hash';
 import { colorOffsetOklab, linearToOklab, oklabToLinear, resolveIrregularity } from './irregularity';
 import { srgbToLinear } from './surface';
 import { pitchMm, pmod } from './scale';
-import type { FabricInput, Luster } from './types';
+import type { FabricInput, Luster, YarnType } from './types';
 
 export const DEFAULT_TWIST_PER_M = 500;
+/** İplik yapısı → shader kodu (iplik tablosu satır 3 .z, yarnTypes satır 1 .y). */
+export const STRUCTURE_CODE: Record<NonNullable<YarnType['structure']>, number> = { spun: 0, tape: 1, filament: 2, textured: 3 };
+/** VARSAYIM: tekstüre ipliğin kenar yumuşaklığı (kesit yarı genişliğinin oranı; kabarık lif saçağı). */
+export const TEXTURED_EDGE_SOFT = 0.15;
 const LUSTER_INDEX: Record<Luster, number> = { mat: 0, yarimat: 1, parlak: 2 };
 
 export interface PackedFabric {
@@ -76,7 +80,7 @@ export function packFabric(input: FabricInput): PackedFabric {
     yt[i * 4 + 2] = LUSTER_INDEX[y.luster];
     yt[i * 4 + 3] = Math.max(0, Math.min(1, y.hairiness));
     yt[(m + i) * 4] = Math.max(1, y.plies ?? 2);
-    yt[(m + i) * 4 + 1] = y.structure === 'tape' ? 1 : 0;
+    yt[(m + i) * 4 + 1] = STRUCTURE_CODE[y.structure ?? 'spun'];
   });
   return {
     weave: { width: input.weave.warps, height: input.weave.wefts, data: input.weave.data },
@@ -93,10 +97,10 @@ export function packFabric(input: FabricInput): PackedFabric {
  * fix-v3 iplik tablosu (GPU uThreads, RGBA32F, genişlik max(px, py), 8 satır): iplik başına sabitler bir kez
  * CPU'da; shader her pikselde 6 aday × ~8 pcg hash yerine 4 texel okur (G-buffer'ın ana ALU yükü buydu).
  * Satır 4·eksen + k (eksen 0 çözgü, 1 atkı), indeks mod döşeme periyodu:
- *   k = 0: (taban yarıçap mm = d/2·(1 + kalınlık·t₀), merkez kayması mm = konum·p·t₁, basıklık k, çap d)
+ *   k = 0: (taban yarıçap mm = d/2·(1 + kalınlık·t₀), merkez kayması mm = konum·p·t₁, kesit en/boy A (sıkışma × yayılma), çap d)
  *   k = 1: (π·t₅, π·t₆, t₇, t₈)          — iplik boyunca kalınlık fazları, yol sapması genlikleri
- *   k = 2: (π·t₉, t₁₀, t₁₁, 0)           — yol fazı, lif dokusu ötelemesi
- *   k = 3: (±büküm tur/mm, kat, bant 0/1, 0)
+ *   k = 2: (π·t₉, t₁₀, t₁₁, kenar yumuşaklığı) — yol fazı, lif dokusu ötelemesi, AA genişliği (tekstüre 0.15·a)
+ *   k = 3: (±büküm tur/mm, kat, yapı kodu (STRUCTURE_CODE), 0)
  * tᵢ = threadRand(eksen, indeks mod periyot, kanal i) — shader'daki eski threadRand çağrılarıyla birebir.
  */
 export function threadTable(
@@ -104,11 +108,13 @@ export function threadTable(
   period: [number, number],
   irregularityMul = 1,
   flattenFactor = 1,
+  spreadMul = 1,
 ): { width: number; data: Float32Array } {
   const ir = resolveIrregularity(input, irregularityMul);
   const width = Math.max(period[0], period[1]);
   const data = new Float32Array(width * 8 * 4);
   const pitch = [pitchMm(input.density.warpPerCm), pitchMm(input.density.weftPerCm)];
+  const fill = systemFill(input);
   for (const ax of [0, 1] as const) {
     const list = ax === 0 ? input.warp : input.weft;
     for (let i = 0; i < period[ax]; i++) {
@@ -117,10 +123,10 @@ export function threadTable(
       const t = (ch: number) => threadRand(ax, i, ch, ir.seed);
       const row = (k: number, v: [number, number, number, number]) => data.set(v, ((ax * 4 + k) * width + i) * 4);
       const T = (y.twistPerM ?? DEFAULT_TWIST_PER_M) / 1000;
-      row(0, [0.5 * d * (1 + ir.thickness * t(0)), ir.position * pitch[ax] * t(1), flatteningV2(d, pitch[ax], flattenFactor, y.structure === 'tape'), d]);
+      row(0, [0.5 * d * (1 + ir.thickness * t(0)), ir.position * pitch[ax] * t(1), crossSectionAspect(d, pitch[ax], flattenFactor, y.structure, y.plies ?? 2, spreadMul, fill[1 - ax]), d]);
       row(1, [Math.PI * t(5), Math.PI * t(6), t(7), t(8)]);
-      row(2, [Math.PI * t(9), t(10), t(11), 0]);
-      row(3, [y.twist === 'S' ? -T : T, Math.max(1, y.plies ?? 2), y.structure === 'tape' ? 1 : 0, 0]);
+      row(2, [Math.PI * t(9), t(10), t(11), y.structure === 'textured' ? TEXTURED_EDGE_SOFT : 0]);
+      row(3, [y.twist === 'S' ? -T : T, Math.max(1, y.plies ?? 2), STRUCTURE_CODE[y.structure ?? 'spun'], 0]);
     }
   }
   return { width, data };

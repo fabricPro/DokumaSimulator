@@ -30,6 +30,8 @@ import { fabricInputFromSpec } from '../realistic/adapters/fromSpec';
 export type QualityPref = Quality | 'auto';
 /** Gerçekçi görünümde boşlukların zemini (fix-v3): koyu gri, siyah, arkadan ışık (perde ışık geçirgenliği). */
 export type BackgroundPref = 'darkgray' | 'black' | 'backlight';
+/** Bakış mesafesi (realistic/viewDistance.ts): Göz 40 cm, Uzak 2 m (fiziksel ölçek + ön filtre), Lup. */
+export type DistancePref = 'eye' | 'far' | 'loupe';
 
 export interface RealisticLayerProps {
   spec: FabricSpec;
@@ -42,6 +44,8 @@ export interface RealisticLayerProps {
   quality: QualityPref;
   /** Boşluk zemini; verilmezse koyu gri. */
   background?: BackgroundPref;
+  /** Bakış mesafesi; verilmezse lup. Göz / Uzak'ta pxPerMm çağıranın fiziksel ölçeğidir. */
+  distance?: DistancePref;
   onState: (s: { ok: boolean; text: string }) => void;
   /** Verilmezse dokunmatik (pointer: coarse) cihazda 'mobile', aksi hâlde 'desktop'. */
   profile?: 'desktop' | 'mobile';
@@ -101,7 +105,9 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     }
   }, [p.spec, p.seed, p.densities]);
 
-  const level = p.quality === 'auto' ? PERF_LADDER[auto.level] : fixedLevel(p.quality);
+  // Otomatik kalite yalnız aktif gezinmede geçici olarak düşer; durağan çizim her zaman merdivenin tepesinde
+  // (yüksek, tam çözünürlük) → Tezgah ve Mamul panelleri durağanken aynı seviyede.
+  const level = p.quality === 'auto' ? PERF_LADDER[moving ? auto.level : 0] : fixedLevel(p.quality);
   const { left, top, width, height } = p.rect;
 
   // Masaüstü ilerleyen kalite: ardışık görünüm değişiminde yarım çözünürlük, durunca tam
@@ -110,13 +116,18 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     const now = performance.now();
     if (now - lastViewChange.current < MOTION_MS) setMoving(true);
     lastViewChange.current = now;
-    const t = setTimeout(() => setMoving(false), MOTION_MS + 10);
+    const t = setTimeout(() => {
+      setMoving(false);
+      // gezinme bitti: oto basamak sıfırlanır (bir sonraki gezinme yeniden ölçer)
+      setAuto((a) => (a.level === 0 && a.avgMs === null ? a : initialAutoQuality()));
+    }, MOTION_MS + 10);
     return () => clearTimeout(t);
   }, [profile, p.originMm[0], p.originMm[1], p.pxPerMm]);
 
   // Mobil: desen / kalite değişince döşeme yeniden pişer → önce göstergeyi boya, sonra render
   const background = p.background ?? 'darkgray';
-  const bakeKey = `${level.quality}|${background}`;
+  const distance = p.distance ?? 'loupe';
+  const bakeKey = `${level.quality}|${background}|${distance}`;
   const bakedFor = useRef<{ input: unknown; key: string } | null>(null);
   const needsBake = profile === 'mobile' && (!bakedFor.current || bakedFor.current.input !== input || bakedFor.current.key !== bakeKey);
   useEffect(() => {
@@ -145,6 +156,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
           light: LIGHT,
           quality: level.quality,
           tuning: { background },
+          distance,
         });
       } catch {
         onStateRef.current({ ok: false, text: '' });
@@ -170,7 +182,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
           text: `Gerçekçi${p.loupe ? ' büyüteç' : ''}${profile === 'mobile' ? ' (mobil)' : ''} · ${p.quality === 'auto' ? 'oto ' : ''}${lvl}${ms !== null ? ` · ${ms.toFixed(1)} ms ${how}` : ''}${bake}`,
         });
         // Hareket sırasındaki yarım çözünürlük kareleri otomatik kaliteyi düşürmesin
-        if (p.quality === 'auto' && ms !== null && !moving) {
+        if (p.quality === 'auto' && ms !== null && moving) {
           setAuto((a) => {
             const n = stepAutoQuality(a, ms);
             return n.level === a.level && n.avgMs === a.avgMs ? a : n;
@@ -189,7 +201,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     };
     // level nesnesi her render'da yenidir; içeriği quality + scale
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile, background]);
+  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile, background, distance]);
 
   const hidden = width < 2 || height < 2;
   return (

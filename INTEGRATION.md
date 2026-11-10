@@ -153,7 +153,8 @@ const { quality, scale } = mod.PERF_LADDER[auto.level];
 ```
 
 Merdiven sırası: high → medium → low → low ×0.75 → low ×0.5 çözünürlük. Bütçe aşılınca bir basamak iner;
-ortalama bütçenin yarısının altına düşünce bir basamak çıkar.
+ortalama bütçenin yarısının altına düşünce bir basamak çıkar. Dokuma Simülatörü'nde merdiven yalnız aktif
+gezinme sırasında uygulanır; durağan çizim her zaman tepe basamakta (Tezgah ve Mamul panelleri aynı kalitede).
 
 Ölçüm (`samples/realistic/fix-v2/perf.json`, masaüstü, AMD RX 7700 XT, 1024², GPU zamanlayıcısı):
 
@@ -192,10 +193,33 @@ bir kez pişirilir. Pan / zoom anahtara girmez; yalnız `mm mod döşeme` ile d�
 - `r.stats().tile`: döşeme boyu (mm), texel boyutu, pişirme süresi, lif sayısı. `bakeMs` yalnız pişirme
   yapılan karede dolu.
 
+## 6b. Bakış mesafesi (Göz / Uzak / Lup) — Tezgah'ta varsayılan **Göz**
+
+`viewDistance.ts` (saf, testli). Zoom'dan ayrı bir seçicidir; Tezgah entegrasyonunda varsayılan görünüm
+`distance: 'eye'` olmalıdır:
+
+```ts
+const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // gerçek ölçek: ekranda 1 mm = 1 mm
+r.render(input, { ...view, pxPerCm: pxPerMm * 10, distance: 'eye' }); // 'eye' | 'far' | 'loupe'
+```
+
+- **Göz (40 cm) / Uzak (2 m):** kumaş gerçek fiziksel ölçekte çizilir. CSS pikseli için varsayılan 96 dpi
+  (VARSAYIM); kullanıcı ayarlarında ekrandaki çubuğu bir kredi kartı genişliğine (85.6 mm, `CARD_WIDTH_MM`)
+  eşitleyerek çarpanı kalibre eder (Dokuma Simülatörü'nde "ekran" bölümü, tarayıcıda saklanır).
+- Gözün o mesafede ayırt edemeyeceği detay önceden süzülür: 1 yay dakikası çözünürlük (40 cm ≈ 0.12 mm,
+  2 m ≈ 0.58 mm); Gauss σ = max(2 × çözünürlük, 0.35 × en büyük iplik aralığı) (VARSAYIM). Renk karışımı
+  doğrusal uzayda (sRGB doku + mip); iplik içi büküm / lif ve iplik araları komşu renklerle kaynaşır, örgü
+  dokusu, dimi çizgisi ve bant / renk deseni korunur. Ayrı iplikler ve siyah boşluklar görünmez.
+- Önbellek: tüm rapor **düşük çözünürlükte** (σ başına ≥ 4 texel, ≤ 24 texel/mm) ışıklı renk döşemesine bir
+  kez pişirilir; gezinme yalnız döşemeyi süzerek okur. Uzun raporlar (LHOTSE ~40 cm) lup çözünürlüğünde
+  pişirilmez.
+- **Lup:** mevcut gerçekçi yakın görünüm. Uzun raporda döşeme lup çözünürlüğüne sığmıyorsa ao / gölge yalnız
+  görünür pencere (×2) için pişirilir; görünüm pencereden çıkınca yeniden.
+
 ## 7. Yalnız yakın görünüm / büyüteç
 
-Gerçekçi görünüm uzak ölçekte bilgi katmaz ve GPU'yu boşa harcar. Önerilen kullanım (Dokuma Simülatörü'nde
-uygulanan):
+Lup modunda gerçekçi görünüm uzak ölçekte bilgi katmaz ve GPU'yu boşa harcar. Önerilen kullanım (Dokuma
+Simülatörü'nde uygulanan; Göz / Uzak'ta katman her zaman tüm paneli örter):
 
 - **Yakında** (≥ 100 px/mm): tüm kumaş paneli gerçekçi katmanla örtülür. Katman, mevcut görünümün tam
   üstünde aynı mm ↔ piksel eşlemesiyle durur.

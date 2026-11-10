@@ -12,6 +12,8 @@ import type { PhysicalInfo } from '../render-engine/worker';
 import { parseWif } from '../importers/wif';
 import { parseFabricJson, serializeFabricJson } from '../importers/fabricJson';
 import { atkiJsonImporter } from '../importers/atkiJson';
+import { atkiJsonToFabricSpec, VARSAYILAN_SECENEKLER, type AtkiSecenekler } from '../adapters/atkiJson';
+import { DEMO_DESENLER, type AtkiBelge } from './demoDesenler';
 import { colorsToSlots } from '../importers/slots';
 import { physicalExample } from '../presets/physicalExample';
 import { FabricPanel, YarnPanel } from './Controls';
@@ -19,7 +21,19 @@ import { FabricPane, LOUPE_ZOOM, MAX_PPM, MIN_PPM, REALISTIC_FULL_PPM, type MmVi
 import { MetricsBar } from './MetricsBar';
 import { RenderClient, imageToCanvas } from './renderClient';
 import { WeaveEditor } from './WeaveEditor';
-import type { BackgroundPref, QualityPref } from './RealisticLayer';
+import type { BackgroundPref, DistancePref, QualityPref } from './RealisticLayer';
+import { CARD_WIDTH_MM, cssPxPerMm } from '../realistic/viewDistance';
+
+/** Ekran kalibrasyonu (CSS px / mm çarpanı) bu tarayıcıda saklanır; yoksa 96 dpi varsayımı (1). */
+const CALIB_KEY = 'dokuma.ekranKalibrasyonu';
+function loadCalib(): number {
+  try {
+    const v = parseFloat(localStorage.getItem(CALIB_KEY) ?? '');
+    return v > 0.3 && v < 3 ? v : 1;
+  } catch {
+    return 1;
+  }
+}
 
 /** Kalibrasyon görünümü ve gerçekçi render modülü ayrı parça olarak, ilk açılışta yüklenir. */
 const CalibrationView = lazy(() => import('./CalibrationView'));
@@ -66,7 +80,13 @@ export function App() {
   const [realOn, setRealOn] = useState(false);
   const [realQuality, setRealQuality] = useState<QualityPref>('auto');
   const [realBackground, setRealBackground] = useState<BackgroundPref>('darkgray');
+  // Bakış mesafesi (zoom'dan ayrı): Göz / Uzak fiziksel ölçek + ön filtre, Lup gerçekçi yakın görünüm
+  const [distance, setDistance] = useState<DistancePref>('eye');
+  const [screenCalib, setScreenCalib] = useState(loadCalib);
+  const physPpm = cssPxPerMm(screenCalib);
   const [realUnavailable, setRealUnavailable] = useState(false);
+  // Yüklü .atki.json belgesi (demo ya da içe aktarılan): varyant / seçenek değişince desen yeniden açılır
+  const [atki, setAtki] = useState<{ key: string; belge: AtkiBelge; varyant: number; secenekler: AtkiSecenekler } | null>(null);
   const onRealUnavailable = useCallback(() => {
     setRealUnavailable(true);
     setRealOn(false);
@@ -74,9 +94,9 @@ export function App() {
   const realistic = useMemo(
     () =>
       realOn && !realUnavailable
-        ? { quality: realQuality, background: realBackground, densities: 'finished' as const, onUnavailable: onRealUnavailable }
+        ? { quality: realQuality, background: realBackground, distance, densities: 'finished' as const, onUnavailable: onRealUnavailable }
         : undefined,
-    [realOn, realUnavailable, realQuality, realBackground, onRealUnavailable],
+    [realOn, realUnavailable, realQuality, realBackground, distance, onRealUnavailable],
   );
   const [calibOpened, setCalibOpened] = useState(false);
 
@@ -110,6 +130,22 @@ export function App() {
     (mm: number) => setView((v) => ({ ...v, pxPerMm: Math.max(MIN_PPM, Math.min(MAX_PPM, paneSize.w / mm)) })),
     [paneSize.w],
   );
+  // Göz / Uzak: ölçek fiziksel (1 mm ekranda = 1 mm), zoom kilitli; Lup'a dönünce önceki zoom geri gelir
+  const physical = realOn && !realUnavailable && distance !== 'loupe';
+  const loupePpm = useRef<number | null>(null);
+  useEffect(() => {
+    if (physical) {
+      setView((v) => {
+        if (loupePpm.current === null) loupePpm.current = v.pxPerMm;
+        return { ...v, pxPerMm: physPpm };
+      });
+    } else if (loupePpm.current !== null) {
+      const back = loupePpm.current;
+      loupePpm.current = null;
+      setView((v) => ({ ...v, pxPerMm: back }));
+    }
+  }, [physical, physPpm]);
+  const onViewChange = useCallback((nv: MmView) => setView(physical ? { ...nv, pxPerMm: physPpm } : nv), [physical, physPpm]);
   // İlk ölçümde 10 mm göster
   useEffect(() => {
     if (fitted.current || paneSize.w < 100) return;
@@ -204,12 +240,30 @@ export function App() {
     return `boy %${boy.toFixed(1)} kısaldı, en %${en.toFixed(1)} daraldı`;
   }, [finishedWindow, paneSize, view.pxPerMm]);
 
+  /** .atki.json belgesini (varyant + seçeneklerle) spec'e açar. Panelde düzenlenmiş iplik tanımları korunur. */
+  const openAtki = (next: { key: string; belge: AtkiBelge; varyant: number; secenekler: AtkiSecenekler }, keepYarns: boolean) => {
+    try {
+      setSpec((s) => {
+        const iplikler = keepYarns && s.yarns?.length ? s.yarns : next.belge.iplikler;
+        const out = atkiJsonToFabricSpec(next.belge.json, { ...next.belge, iplikler, varyantIndex: next.varyant, secenekler: next.secenekler });
+        // önceki desenin tarağı / atkı sıklık raporu bu desene ait değil
+        return { ...s, ...out, reed: undefined, weftDensityReport: undefined };
+      });
+      setAtki(next);
+      const v = next.belge.json.varyasyonlar[next.varyant];
+      setMessage(`${next.belge.ad} yüklendi${v ? ' · ' + v.ad : ''}.`);
+    } catch (e) {
+      setMessage('Desen açılamadı: ' + (e as Error).message);
+    }
+  };
+
   const onImport = async (file: File) => {
     try {
       const text = await file.text();
       const name = file.name.toLowerCase();
       if (atkiJsonImporter.accepts(name)) {
-        setSpec((s) => ({ ...s, ...atkiJsonImporter.parse(text) }));
+        const b = atkiJsonImporter.load(text);
+        openAtki({ key: 'dosya:' + file.name, belge: { ...b, ad: b.json.desen.ad || file.name, varyantIndex: 0 }, varyant: 0, secenekler: VARSAYILAN_SECENEKLER }, false);
       } else if (name.endsWith('.wif')) {
         const r = parseWif(text);
         const warnings = [...r.warnings];
@@ -308,6 +362,67 @@ export function App() {
             }}
           />
           <button onClick={() => fileRef.current?.click()}>İçe aktar (WIF / JSON)</button>
+          <select
+            value={atki && !atki.key.startsWith('dosya:') ? atki.key : ''}
+            onChange={(e) => {
+              const d = DEMO_DESENLER.find((x) => x.key === e.target.value);
+              if (d) openAtki({ key: d.key, belge: d, varyant: d.varyantIndex, secenekler: atki?.secenekler ?? VARSAYILAN_SECENEKLER }, false);
+            }}
+            title="Tezgah'tan dışa aktarılmış gerçek .atki.json desenleri"
+          >
+            <option value="">Demo desenler…</option>
+            {DEMO_DESENLER.map((d) => (
+              <option key={d.key} value={d.key}>
+                {d.ad}
+              </option>
+            ))}
+          </select>
+          {atki && atki.belge.json.varyasyonlar.length > 1 && (
+            <select
+              value={atki.varyant}
+              onChange={(e) => openAtki({ ...atki, varyant: +e.target.value }, true)}
+              title="Kolorway varyantı"
+            >
+              {atki.belge.json.varyasyonlar.map((v, k) => (
+                <option key={k} value={k}>
+                  {v.ad}
+                </option>
+              ))}
+            </select>
+          )}
+          {atki && (
+            <details className="atki-gelismis">
+              <summary>gelişmiş</summary>
+              <div className="atki-gelismis-body">
+                <label title="Örgü matrisinin satır sırasını çevir (rows[0] bandın son atkısı)">
+                  <input
+                    type="checkbox"
+                    checked={atki.secenekler.satirTers}
+                    onChange={(e) => openAtki({ ...atki, secenekler: { ...atki.secenekler, satirTers: e.target.checked } }, true)}
+                  />
+                  satirTers
+                </label>
+                <label title="0/1'i çevir ('1' = atkı üstte)">
+                  <input
+                    type="checkbox"
+                    checked={atki.secenekler.matrisTers}
+                    onChange={(e) => openAtki({ ...atki, secenekler: { ...atki.secenekler, matrisTers: e.target.checked } }, true)}
+                  />
+                  matrisTers
+                </label>
+                <label title="Bant içinde örgü satırı hangi atkı indeksine göre ilerlesin">
+                  atkı modu
+                  <select
+                    value={atki.secenekler.atkiModu}
+                    onChange={(e) => openAtki({ ...atki, secenekler: { ...atki.secenekler, atkiModu: e.target.value as AtkiSecenekler['atkiModu'] } }, true)}
+                  >
+                    <option value="bant">bant içi</option>
+                    <option value="global">global</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+          )}
           <button onClick={() => download('kumas.json', new Blob([serializeFabricJson(spec)], { type: 'application/json' }))}>
             JSON dışa aktar
           </button>
@@ -344,7 +459,7 @@ export function App() {
           </div>
           <div className="seg">
             {AREAS_MM.map((mm) => (
-              <button key={mm} className={Math.abs(shownMm - mm) < 0.05 ? 'on' : ''} onClick={() => setArea(mm)}>
+              <button key={mm} disabled={physical} className={Math.abs(shownMm - mm) < 0.05 ? 'on' : ''} onClick={() => setArea(mm)}>
                 {mm} mm
               </button>
             ))}
@@ -396,6 +511,39 @@ export function App() {
               <option value="medium">Kalite: orta</option>
               <option value="low">Kalite: düşük</option>
             </select>
+          )}
+          {realOn && (
+            <select value={distance} onChange={(e) => setDistance(e.target.value as DistancePref)} title="Bakış mesafesi (zoom'dan ayrı)">
+              <option value="eye">Bakış: Göz (40 cm)</option>
+              <option value="far">Bakış: Uzak (2 m)</option>
+              <option value="loupe">Bakış: Lup</option>
+            </select>
+          )}
+          {realOn && distance !== 'loupe' && (
+            <details className="atki-gelismis" title="Ekran kalibrasyonu: çubuğu bir kredi kartının genişliğine eşitleyin">
+              <summary>ekran</summary>
+              <div className="atki-gelismis-body">
+                <div style={{ width: CARD_WIDTH_MM * physPpm, height: 18, background: '#3fc0a0', borderRadius: 3 }} />
+                <span className="muted">Çubuğu kredi kartı genişliğine ({CARD_WIDTH_MM} mm) eşitleyin</span>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.6}
+                  step={0.005}
+                  value={screenCalib}
+                  onChange={(e) => {
+                    const v = +e.target.value;
+                    setScreenCalib(v);
+                    try {
+                      localStorage.setItem(CALIB_KEY, String(v));
+                    } catch {
+                      /* depolama kapalıysa yalnız bu oturum */
+                    }
+                  }}
+                />
+                <span className="muted">{(96 * screenCalib).toFixed(0)} dpi (CSS)</span>
+              </div>
+            </details>
           )}
           {realOn && (
             <select value={realBackground} onChange={(e) => setRealBackground(e.target.value as BackgroundPref)} title="Boşlukların zemini (arkadan ışık: perde ışık geçirgenliği)">
@@ -453,7 +601,7 @@ export function App() {
               title="Tezgah"
               strips={showStrips && positions ? { warp: positions.warp, weft: positions.weft, which: 'loom' } : undefined}
               reedStrip={loomStrip}
-              onViewChange={setView}
+              onViewChange={onViewChange}
               realistic={realistic}
             />
           )}
@@ -467,7 +615,7 @@ export function App() {
             reedStrip={finishedStrip}
             weftLinks={mode === 'compare' ? weftLinks : undefined}
             shrinkLabel={shrinkLabel}
-            onViewChange={setView}
+            onViewChange={onViewChange}
             onInfo={setInfo}
             onSize={onSize}
             realistic={realistic}

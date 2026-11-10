@@ -111,11 +111,14 @@ vec3 reliefTerms(int ax, vec4 t0, vec4 t2, vec4 t3, float s, float u, float cros
   float d = t0.w;
   float T = abs(t3.x);
   float sgn = t3.x < 0.0 ? -1.0 : 1.0;
-  bool tape = t3.z > 0.5;
+  // Yapı (pack.ts STRUCTURE_CODE): 0 eğrilmiş, 1 bant, 2 filament, 3 tekstüre
+  bool spun = t3.z < 0.5;
+  bool tape = t3.z > 0.5 && t3.z < 1.5;
+  bool textured = t3.z > 2.5;
   float Ls = ax == 0 ? uTileMm.y : uTileMm.x;               // döşemenin iplik boyunca uzunluğu
   // Kat aralığı = K·π·d / (kat·tan α), tan α = π·d·T (relief.ts plySpacingMm; K kalibrasyon)
   float tanA = 3.14159265 * d * T;
-  float spacing = (T > 1e-5 && !tape) ? snapP(uPlyK * 3.14159265 * d / (max(1.0, t3.y) * tanA), Ls) : 1e6;
+  float spacing = (T > 1e-5 && spun) ? snapP(uPlyK * 3.14159265 * d / (max(1.0, t3.y) * tanA), Ls) : 1e6;
   float phase = PI * s / spacing - sgn * asin(clamp(u, -1.0, 1.0));
   float sp = sin(phase);
   float bl = bandLimit(spacing * uPxPerMm);
@@ -125,10 +128,16 @@ vec3 reliefTerms(int ax, vec4 t0, vec4 t2, vec4 t3, float s, float u, float cros
   float cu = 1.0 / (a * max(sqrt(max(1.0 - u * u, 0.0)), 0.2));
   dPly = dpd * vec2(PI / spacing, -sgn * cu);
   float fibl = 0.0;
-  if (tape) {
+  if (spun && t3.y < 1.5) {
+    // Tek katlı eğrilmiş: kat oluğu YOK; büküm açısında sığ, yumuşak büküm şeridi (sinüs; oluk tepesi yok)
+    ply = 0.76 + 0.12 * sp * bl;
+    dPly = 0.12 * cos(phase) * bl * vec2(PI / spacing, -sgn * cu);
+  } else if (!spun) {
+    // Bant / filament / tekstüre: büküm görünmez
     ply = 0.76;
     dPly = vec2(0.0);
-    fibl = sin(2.0 * PI * cross / (0.06 * d)) * bandLimit(0.06 * d * uPxPerMm);
+    // Bant ve filament: eksene paralel ince filament çizgileri (tekstürede yok)
+    if (!textured) fibl = sin(2.0 * PI * cross / (0.06 * d)) * bandLimit(0.06 * d * uPxPerMm);
   }
   // Lif gürültüsü: iplik çerçevesinde (enine, boyunca) çapa normalize örnekleme; iplik başına doku ötelemesi
   float tpm = uFiberTexelsPerD / d;                         // texel / mm
@@ -138,7 +147,15 @@ vec3 reliefTerms(int ax, vec4 t0, vec4 t2, vec4 t3, float s, float u, float cros
   vec2 ddx = ax == 0 ? vec2(fp.x * tpm / uFiberSize, 0.0) : vec2(0.0, fp.x * tAlong);
   vec2 ddy = ax == 0 ? vec2(0.0, fp.y * tAlong) : vec2(fp.y * tpm / uFiberSize, 0.0);
   float acrossTex = (ax == 0 ? fp.x : fp.y) * tpm;           // piksel başına enine texel
-  float fib = textureGrad(uFiber, tc, ddx, ddy).r * (1.0 - smoothstep(1.0, 4.0, acrossTex));
+  float fib;
+  if (textured) {
+    // Tekstüre: ince kıvrımlı lif — doku iki eksende eşit ölçekte (izotrop kıvrım), ayak izinden söner
+    vec2 tq = vec2(cross, s) * tpm * 0.35 / uFiberSize + 0.5 * t2.yz;
+    vec2 dq = fp * tpm * 0.35 / uFiberSize;
+    fib = textureGrad(uFiber, tq.yx, vec2(dq.x, 0.0), vec2(0.0, dq.y)).r * (1.0 - smoothstep(1.0, 4.0, max(dq.x, dq.y) * uFiberSize));
+  } else {
+    fib = textureGrad(uFiber, tc, ddx, ddy).r * (1.0 - smoothstep(1.0, 4.0, acrossTex));
+  }
   return vec3(ply, fibl, fib);
 }
 
@@ -289,11 +306,12 @@ void v2Main(float X, float Y, vec2 fp) {
     float a = rw * sqrt(k); float b = rw / sqrt(k);
     float dx = X - ((float(i) + 0.5) * pw + ta.y) - wobV2(0, tb, tc2, Y / pf) * pw;
     // kenar yumuşatma için silüetin yarım piksel dışına kadar aday
-    if (!(abs(dx) < a + fp.x)) continue;
+    if (!(abs(dx) < a + max(fp.x, tc2.w * a))) continue;
     float z0 = czP(ip, k0p).x; float z1 = czP(ip, k0q).x;
     float u = clamp(dx / a, -1.0, 1.0);
     float prof = b * sqrt(max(0.0, 1.0 - u * u));
-    float cov = clamp(0.5 + (a - abs(dx)) / fp.x, 0.0, 1.0);
+    // Kenar kapsaması; tekstürede kabarık saçak: geçiş genişliği max(piksel, yumuşaklık·a)
+    float cov = clamp(0.5 + (a - abs(dx)) / max(fp.x, tc2.w * a), 0.0, 1.0);
     pushCand(t1, t2, Cand(mix(z0, z1, f) + prof, 1.0, i, u, prof, cov, vec2(slope(u, a, b, 1.0), (z1 - z0) * dsW), dx, a));
   }
 
@@ -307,11 +325,11 @@ void v2Main(float X, float Y, vec2 fp) {
     float k = ta.z;
     float a = rf0 * sqrt(k); float b = rf0 / sqrt(k);
     float dy = Y - ((float(j) + 0.5) * pf + ta.y) - wobV2(1, tb, tc2, X / pw) * pf;
-    if (!(abs(dy) < a + fp.y)) continue;
+    if (!(abs(dy) < a + max(fp.y, tc2.w * a))) continue;
     float z0 = czP(k2p, jp).y; float z1 = czP(k2q, jp).y;
     float u = clamp(dy / a, -1.0, 1.0);
     float prof = b * sqrt(max(0.0, 1.0 - u * u));
-    float cov = clamp(0.5 + (a - abs(dy)) / fp.y, 0.0, 1.0);
+    float cov = clamp(0.5 + (a - abs(dy)) / max(fp.y, tc2.w * a), 0.0, 1.0);
     pushCand(t1, t2, Cand(mix(z0, z1, f2) + prof, 2.0, j, u, prof, cov, vec2((z1 - z0) * dsF, slope(u, a, b, 1.0)), dy, a));
   }
 
@@ -332,7 +350,8 @@ void v2Main(float X, float Y, vec2 fp) {
       vec2 dP;
       rel = w ? reliefTerms(0, r0, r2, r3, Y, t1.u, t1.cross, t1.a, fp, dP) : reliefTerms(1, r0, r2, r3, X, -t1.u, -t1.cross, t1.a, fp, dP);
       float amp = t1.prof * relief;
-      hRel = amp * (PLY_H * (rel.x - 0.76) + 0.03 * rel.z);
+      // Kat payı tek katta sığ şerit (reliefTerms içinde ±0.12 ile sınırlı); tekstürede kıvrım payı büyük (0.10)
+      hRel = amp * (PLY_H * (rel.x - 0.76) + (r3.z > 2.5 ? 0.10 : 0.03) * rel.z);
       // Kat bombesi eğimi (ekran x, y): çözgüde (enine, boyunca), atkıda (boyunca, −enine)
       gRel = amp * PLY_H * (w ? vec2(dP.y, dP.x) : vec2(dP.x, -dP.y));
     }

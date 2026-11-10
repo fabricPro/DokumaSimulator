@@ -16,6 +16,11 @@ import banded from '../../../fixtures/banded-warp-sample.json';
 import acikSpecJson from '../../../samples/input/acik-coklu-atki.json';
 import { fabricInputFromSpec } from '../adapters/fromSpec';
 import { computeMetrics } from '../../render-engine/physical/metrics';
+import { DEMO_DESENLER } from '../../app/demoDesenler';
+import { atkiJsonToFabricSpec, orguAnahtari } from '../../adapters/atkiJson';
+import { cssPxPerMm, viewBlurMm, resolvableMm, VIEW_DISTANCE_MM } from '../viewDistance';
+import { physicalExample } from '../../presets/physicalExample';
+import { diameterMm as yarnDiameterMm, toTex as yarnToTex } from '../yarn';
 
 declare global {
   interface Window {
@@ -814,8 +819,287 @@ async function fixV3(phase: number, say: (t: string) => void, tag = 'fix-v3') {
   return out;
 }
 
+/**
+ * Demo desenler (.atki.json, Durak 1): samples/realistic/demo/. Matris / dimi yönü doğrulaması için.
+ *  - lhotse-natural.png: Tezgah | Mamul yan yana, lup ölçeği (100 px/mm), 1. bant sonu + 8b50… v5 bandı.
+ *  - gardisette-bendix-varyant3.png / -varyant6.png: tam rapor yüksekliği (11 px/mm), varyant ADINA göre.
+ *  - lhotse-v70-dimi.png: 4/4 dimi bandı (e29b… v70, atkı 106–145) tek başına, 40 px/mm; köşede ham matris
+ *    (satır 0 altta, koyu = '1' = çözgü üstte).
+ */
+async function demoSnapshots(say: (t: string) => void) {
+  const out: Record<string, unknown> = { light: LIGHT };
+  const lh = DEMO_DESENLER.find((d) => d.key === 'lhotse-natural')!;
+  const gd = DEMO_DESENLER.find((d) => d.key === 'gardisette-bendix-stripe')!;
+  const specOf = (d: typeof lh, varyant: number) => atkiJsonToFabricSpec(d.json, { ...d, varyantIndex: varyant });
+  const renderTo = (input: FabricInput, w: number, h: number, pxPerMm: number, offsetMm: [number, number]) => {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+    r.render(input, { pxPerCm: pxPerMm * 10, offsetCm: [offsetMm[0] / 10, offsetMm[1] / 10], light: LIGHT, quality: 'high' });
+    const o = document.createElement('canvas');
+    o.width = w;
+    o.height = h;
+    o.getContext('2d')!.drawImage(c, 0, 0);
+    r.dispose();
+    return o;
+  };
+  // 1) LHOTSE Tezgah | Mamul (lup ölçeği). Atkı 80–95: 1. bant sonu ve 8b50… v5 bandının başı.
+  {
+    const spec = specOf(lh, 0);
+    const W = 768;
+    const H = 768;
+    const y0 = (80 / spec.weftDensityLoom) * 10;
+    const loom = renderTo(fabricInputFromSpec(spec, undefined, { densities: 'loom' }), W, H, 100, [0, y0]);
+    const fin = renderTo(fabricInputFromSpec(spec, undefined, { densities: 'finished' }), W, H, 100, [0, y0]);
+    const c = document.createElement('canvas');
+    c.width = 2 * W + 8;
+    c.height = H;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, H);
+    g.drawImage(loom, 0, 0);
+    g.drawImage(fin, W + 8, 0);
+    labelOn(g, 10, 10, 'Tezgah · LHOTSE NATURAL · 100 px/mm');
+    labelOn(g, W + 18, 10, 'Mamul (çekme 0: .atki.json çekme taşımaz)');
+    await save(0, 'lhotse-natural.png', c.toDataURL('image/png'), 'png');
+    out.lhotse = { weftCount: spec.weave.length, warpRepeat: spec.weave[0].length, y0Mm: +y0.toFixed(2) };
+  }
+  // 2) Gardisette varyant 3 ve 6 (ada göre), tam rapor yüksekliği
+  for (const adi of ['Varyant 3', 'Varyant 6']) {
+    const k = gd.json.varyasyonlar.findIndex((v) => v.ad === adi);
+    const spec = specOf(gd, k);
+    const ppm = 11;
+    const H = Math.round((spec.weave.length / spec.weftDensityLoom) * 10 * ppm);
+    const cv = renderTo(fabricInputFromSpec(spec), 640, H, ppm, [0, 0]);
+    const g = cv.getContext('2d')!;
+    labelOn(g, 10, 10, `Gardisette Bendix Stripe · ${adi} · ${ppm} px/mm · tam rapor ${spec.weave.length} atkı`);
+    await save(0, `gardisette-bendix-varyant${adi.slice(-1)}.png`, cv.toDataURL('image/png'), 'png');
+  }
+  // 3) LHOTSE 4/4 dimi bandı (v70) tek başına + ham matris
+  {
+    const spec = specOf(lh, 0);
+    const o = lh.json.orguler.find((x) => orguAnahtari(x) === 'e29bafd6-8e71-4fc2-a4e6-6b5f2d8cf712@70')!;
+    const pf = 10 / spec.weftDensityLoom;
+    const ppm = 40;
+    const H = Math.round(40 * pf * ppm);
+    const cv = renderTo(fabricInputFromSpec(spec), 1024, H, ppm, [0, 106 * pf]);
+    const g = cv.getContext('2d')!;
+    // ham matris: satır 0 altta (kumaşta ilk atkı), koyu = '1' = çözgü üstte
+    const cell = 16;
+    const x0 = 1024 - 8 * cell - 16;
+    const yb = H - 16;
+    g.fillStyle = 'rgba(0,0,0,0.75)';
+    g.fillRect(x0 - 8, yb - 8 * cell - 30, 8 * cell + 16, 8 * cell + 38);
+    o.matris.rows.forEach((row, r) =>
+      Array.from(row).forEach((ch, c) => {
+        g.fillStyle = ch === '1' ? '#222' : '#ddd';
+        g.fillRect(x0 + c * cell, yb - (r + 1) * cell, cell - 1, cell - 1);
+      }),
+    );
+    g.fillStyle = '#fff';
+    g.font = '12px system-ui, sans-serif';
+    g.fillText("matris v70 (satır 0 altta, koyu = '1')", x0 - 4, yb - 8 * cell - 14);
+    labelOn(g, 10, 10, 'LHOTSE 4/4 dimi bandı (e29b… v70, atkı 106–145) · 40 px/mm · rows[0] = bandın ilk (alt) atkısı');
+    await save(0, 'lhotse-v70-dimi.png', cv.toDataURL('image/png'), 'png');
+  }
+  await save(0, 'demo.json', JSON.stringify(out, null, 2), 'json');
+  say('demo: ' + JSON.stringify(out));
+  return out;
+}
+
+/**
+ * Bakış mesafesi + yayılma (Durak 2): samples/realistic/view-distance/.
+ *  - <demo>-goz-uzak-lup.png: aynı merkez; Göz (40 cm) ve Uzak (2 m) fiziksel ölçekte (96 dpi × dpr 2 = 7.56 px/mm),
+ *    Lup 100 px/mm. Göz / Uzak üstünde lup bölgesi çerçeveli.
+ *  - <demo>-yayilma.png: lup, yayılma kapalı (sert yuvarlak kesit) ↔ açık.
+ *  - report.json: görsel açıklık (zemin görünen piksel oranı; üst + alt katman kenar kapsaması) ↔ metrik açıklık
+ *    (100 − örtme), yayılma kapalı / açık; demo desenler, açık doku, varsayılan örnek, bantlı çözgü.
+ *  - perf.json: gezinme karesi (Göz / Uzak / Lup), duvar saati render + 1 piksel okuma.
+ */
+async function viewDistanceSnapshots(say: (t: string) => void) {
+  const LIGHT_V = LIGHT;
+  const DPR = 2;
+  const physPpm = cssPxPerMm(1) * DPR;
+  const demos = DEMO_DESENLER.map((d) => ({
+    key: d.key,
+    ad: d.ad,
+    spec: atkiJsonToFabricSpec(d.json, { ...d, varyantIndex: d.key === 'gardisette-bendix-stripe' ? 5 : 0 }),
+    // merkez (mm): LHOTSE dimi bandı (atkı ~126), Gardisette şerit geçişleri (atkı ~150)
+    center: d.key === 'lhotse-natural' ? [6, (126 / 15) * 10] : [6, (150 / 20) * 10],
+  }));
+  const render = (input: FabricInput, w: number, h: number, ppm: number, center: number[], extra: Partial<ViewParams> = {}) => {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+    const off = [center[0] - w / 2 / ppm, center[1] - h / 2 / ppm];
+    r.render(input, { pxPerCm: ppm * 10, offsetCm: [off[0] / 10, off[1] / 10], light: LIGHT_V, quality: 'high', ...extra });
+    const o = document.createElement('canvas');
+    o.width = w;
+    o.height = h;
+    o.getContext('2d')!.drawImage(c, 0, 0);
+    r.dispose();
+    return o;
+  };
+  const S = 640;
+  const LUP = 100;
+  for (const d of demos) {
+    const input = fabricInputFromSpec(d.spec, undefined, { densities: 'finished' });
+    // 1) Göz | Uzak | Lup
+    {
+      const eye = render(input, S, S, physPpm, d.center, { distance: 'eye' });
+      const far = render(input, S, S, physPpm, d.center, { distance: 'far' });
+      const lup = render(input, S, S, LUP, d.center, { distance: 'loupe' });
+      const c = document.createElement('canvas');
+      c.width = 3 * S + 16;
+      c.height = S;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#000';
+      g.fillRect(0, 0, c.width, S);
+      [eye, far, lup].forEach((im, k) => g.drawImage(im, k * (S + 8), 0));
+      // lup bölgesi çerçevesi (Göz / Uzak üstünde)
+      const box = (S / LUP) * physPpm;
+      g.strokeStyle = '#ff3b3b';
+      g.lineWidth = 2;
+      for (const k of [0, 1]) g.strokeRect(k * (S + 8) + S / 2 - box / 2, S / 2 - box / 2, box, box);
+      const eb = viewBlurMm('eye', input);
+      const fb = viewBlurMm('far', input);
+      labelOn(g, 10, 10, `Göz 40 cm · gerçek ölçek · σ ${eb.toFixed(2)} mm (1′ = ${resolvableMm(VIEW_DISTANCE_MM.eye).toFixed(3)} mm)`);
+      labelOn(g, S + 18, 10, `Uzak 2 m · gerçek ölçek · σ ${fb.toFixed(2)} mm (1′ = ${resolvableMm(VIEW_DISTANCE_MM.far).toFixed(3)} mm)`);
+      labelOn(g, 2 * (S + 8) + 10, 10, `Lup · ${LUP} px/mm (kırmızı çerçeve)`);
+      labelOn(g, 10, S - 34, `${d.ad} · ölçek 96 dpi × dpr ${DPR} = ${physPpm.toFixed(2)} px/mm`);
+      await save(0, `${d.key}-goz-uzak-lup.png`, c.toDataURL('image/png'), 'png');
+    }
+    // 2) yayılma öncesi / sonrası (lup)
+    {
+      const before = render(input, S, S, LUP, d.center, { tuning: { spread: 0 } });
+      const after = render(input, S, S, LUP, d.center, { tuning: { spread: 1 } });
+      const c = document.createElement('canvas');
+      c.width = 2 * S + 8;
+      c.height = S;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#000';
+      g.fillRect(0, 0, c.width, S);
+      g.drawImage(before, 0, 0);
+      g.drawImage(after, S + 8, 0);
+      labelOn(g, 10, 10, 'Yayılma kapalı (sert yuvarlak kesit)');
+      labelOn(g, S + 18, 10, 'Yayılma açık (tip + doluluk, hacim korunur)');
+      await save(0, `${d.key}-yayilma.png`, c.toDataURL('image/png'), 'png');
+    }
+  }
+  // 3) Görsel açıklık ↔ metrik
+  const openness = (inp: FabricInput, spread: number) => {
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 1024;
+    const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+    let cov = 0;
+    let n = 0;
+    for (const off of [[0, 0], [1.3, 2.1], [0.7, 5.3]] as Array<[number, number]>) {
+      r.render(inp, { pxPerCm: 400, offsetCm: off, light: LIGHT_V, quality: 'low', tuning: { spread } });
+      const gb = r.readGBuffer();
+      for (let k = 0; k < gb.gb1.length; k += 4) {
+        const c1 = gb.gb1[k + 2] > 0.5 ? gb.gb1[k + 3] : 0;
+        const y = gb.gb3 ? gb.gb3[k + 1] : 0;
+        const ax2 = Math.floor(y + 1e-3);
+        const c2 = ax2 > 0.5 ? Math.min(1, (y - ax2) / 0.9) : 0;
+        cov += c1 + (1 - c1) * c2;
+        n++;
+      }
+    }
+    r.dispose();
+    return +(100 * (1 - cov / n)).toFixed(1);
+  };
+  const cases: Array<{ name: string; spec?: FabricSpec; input: FabricInput; metricPct: number }> = [];
+  for (const d of demos) cases.push({ name: d.key, spec: d.spec, input: fabricInputFromSpec(d.spec, undefined, { densities: 'finished' }), metricPct: 100 - computeMetrics(d.spec).cover });
+  cases.push({ name: 'acik-coklu-atki', spec: acikSpec, input: fabricInputFromSpec(acikSpec, undefined, { densities: 'finished' }), metricPct: 100 - computeMetrics(acikSpec).cover });
+  const ex = physicalExample(6, 10);
+  cases.push({ name: 'varsayilan-ornek', spec: ex, input: fabricInputFromSpec(ex, undefined, { densities: 'finished' }), metricPct: 100 - computeMetrics(ex).cover });
+  {
+    // bantlı çözgü: FabricSpec yok; aynı Peirce örtme formülü (metrics.ts: c = sıklık/10 · d)
+    const dB = yarnDiameterMm(yarnToTex(20, 'Ne'));
+    const m = 100 * (1 - Math.min(1, (bandedInput.density.warpPerCm / 10) * dB)) * (1 - Math.min(1, (bandedInput.density.weftPerCm / 10) * dB));
+    cases.push({ name: 'banded-warp', input: bandedInput, metricPct: m });
+  }
+  const rows = cases.map((c) => {
+    const rigid = openness(c.input, 0);
+    const spread = openness(c.input, 1);
+    return { name: c.name, metricPct: +c.metricPct.toFixed(1), visualRigidPct: rigid, visualSpreadPct: spread, diffSpread: +(spread - c.metricPct).toFixed(1), within3: Math.abs(spread - c.metricPct) <= 3 };
+  });
+  const report = {
+    note: 'Görsel açıklık = zemin görünen piksel oranı (üst katman kapsaması + alt katmanın kenar kapsaması), 40 px/mm, üç pencere ortalaması. Metrik açıklık = 100 − örtme (metrics.ts, Peirce: mamul sıklığı × yuvarlak çap).',
+    acceptance: 'yayılma açıkken |görsel − metrik| ≤ 3 puan',
+    allWithin3: rows.every((r) => r.within3),
+    rows,
+  };
+  await save(0, 'report.json', JSON.stringify(report, null, 2), 'json');
+  say('açıklık: ' + JSON.stringify(rows));
+  // 4) Performans
+  {
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 1024;
+    const gl0 = c.getContext('webgl2') as WebGL2RenderingContext;
+    const dbg = gl0.getExtension('WEBGL_debug_renderer_info');
+    const gpu = dbg ? String(gl0.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : String(gl0.getParameter(gl0.RENDERER));
+    const r = createRealisticRenderer(c, {});
+    const px = new Uint8Array(4);
+    const rows2: Record<string, unknown>[] = [];
+    for (const d of demos) {
+      const input = fabricInputFromSpec(d.spec, undefined, { densities: 'finished' });
+      for (const dist of ['eye', 'far', 'loupe'] as const) {
+        const ppm = dist === 'loupe' ? LUP : physPpm;
+        const times: number[] = [];
+        let bakeMs: number | null = null;
+        for (let k = 0; k < 35; k++) {
+          const t0 = performance.now();
+          // gezinme: merkez kayar (lup'ta pencere dışına çıkınca yeniden pişer — en kötü kare buna bakar)
+          const cx = d.center[0] + k * 0.05;
+          const cy = d.center[1] + k * 0.08;
+          r.render(input, { pxPerCm: ppm * 10, offsetCm: [(cx - 512 / ppm) / 10, (cy - 512 / ppm) / 10], light: LIGHT_V, quality: 'high', distance: dist });
+          gl0.readPixels(0, 0, 1, 1, gl0.RGBA, gl0.UNSIGNED_BYTE, px);
+          if (k === 0) bakeMs = r.stats().bakeMs ?? null;
+          if (k >= 5) times.push(performance.now() - t0);
+        }
+        times.sort((a, b) => a - b);
+        rows2.push({
+          file: d.key,
+          distance: dist,
+          method: 'sync-wall',
+          frameMedianMs: +times[Math.floor(times.length / 2)].toFixed(2),
+          frameWorstMs: +times[times.length - 1].toFixed(2),
+          bakeMs: bakeMs === null ? null : +bakeMs.toFixed(1),
+          tile: r.stats().tile,
+        });
+      }
+    }
+    r.dispose();
+    const perfOut = { gpu, size: 1024, budgetMs: { navigation: 4 }, note: 'Göz / Uzak: pişirilmiş düşük çözünürlüklü renk döşemesi + 3×3 ön filtre; Lup: ekran G-buffer + ışık (uzun raporda görünür pencere pişirilir)', rows: rows2 };
+    await save(0, 'perf.json', JSON.stringify(perfOut, null, 2), 'json');
+    say('perf: ' + JSON.stringify(rows2.map((x) => [x.file, x.distance, x.frameMedianMs, x.bakeMs])));
+  }
+  return report;
+}
+
 async function run() {
   const tagParam = new URLSearchParams(location.search).get('phase') ?? '1';
+  if (tagParam === 'view-distance') {
+    SAVE_TAG = 'view-distance';
+    const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');
+    window.__snapshotsReport = await viewDistanceSnapshots(say);
+    window.__snapshotsDone = true;
+    say('Bitti.');
+    return;
+  }
+  if (tagParam === 'demo') {
+    SAVE_TAG = 'demo';
+    const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');
+    window.__snapshotsReport = await demoSnapshots(say);
+    window.__snapshotsDone = true;
+    say('Bitti.');
+    return;
+  }
   const fixTag = /^fix-v\d+$/.test(tagParam) ? tagParam : null;
   // Düzeltme turu tüm kontrolleri (faz 6 dahil) çalıştırır
   const phase = fixTag ? 6 : Math.max(1, parseInt(tagParam, 10) || 1);
