@@ -15,9 +15,12 @@
  *
  * İki parametre seti (`model`):
  *  - 'classic': yukarıdaki model (CPU heightfield ile tutarlılık kontrolü ve eski testler bununla);
- *  - 'v2' (fix-v2, reference/realistic-v2/prototip_render_v2.py): tam elips profil (ölçek 1, basıklık yok),
- *    cosine krepaj geçişi, genlik çözgüde 0.45·r_çözgü, atkıda 0.40·r_en yakın çözgü. Prototipte bombe /
- *    krepaj oranı ≈ 1 / 0.45; classic'te 0.6·b / (0.8·r) ≈ 0.75 idi ("tahta, tuğla" görüntüsünün nedeni).
+ *  - 'v2' (fix-v3): TEMAS TABANLI iplik yolu. Her kesişimde üstteki ve alttaki ipliğin merkezleri arasındaki
+ *    dikey mesafe b_üst + b_alt (b = kesit yarı yüksekliği; sıkışma yoksa b = r). Pay β çözgüye, 1 − β atkıya:
+ *    z_çözgü = ±β·D, z_atkı = ∓(1 − β)·D. Merkez hattı ardışık kesişim z'lerinden cosine geçişle geçer.
+ *    Uzun atlamada (aynı durumun ardışık koşusu) D koşudaki en kalın çapraz iplikle alınır → iplik flotte
+ *    boyunca düz kalır, inmez. Kalın / ince ipliğin yarıçapı geometriye doğrudan girer ("en yakın komşu" yok).
+ *    Kesit: eğrilmiş iplikte yuvarlağa yakın; basıklık yalnız sıkışmadan (d/p > 0.8), en/boy ≤ 1.4; 'tape' 3.
  */
 import type { FabricInput } from './types';
 import { DEFAULT_YARN_DENSITY, diameterMm, toTex } from './yarn';
@@ -33,11 +36,51 @@ export const FLATTEN_MAX = 2.2;
 export const PROFILE_SCALE = 0.6;
 export const DEFAULT_CRIMP_SHARE = 0.4;
 
-/** v2 (prototip) sabitleri. VARSAYIM (kalibre edilecek): prototip birimleri çözgü yarıçapı = 1. */
+/** v2 (fix-v3) sabitleri. */
 export const V2_PROFILE_SCALE = 1.0;
-export const V2_CRIMP_WARP = 0.45;
-export const V2_CRIMP_WEFT = 0.4;
+/**
+ * VARSAYIM (kalibre edilecek): v2 krepaj payı (girdide crimpShare yoksa). fix-v2 prototip genlikleri
+ * 0.45·r (çözgü) / 0.40·r (atkı), oran ≈ 0.53 → dengeli 0.5.
+ */
+export const V2_CRIMP_SHARE = 0.5;
+/** VARSAYIM: sıkışma basıklığı k = 1 + 0.8·max(0, d/p − 0.8), en/boy (= k) ≤ 1.4. Yassı bant: k = 3. */
+export const V2_FLATTEN_START = 0.8;
+export const V2_FLATTEN_SLOPE = 0.8;
+export const V2_FLATTEN_MAX = 1.4;
+export const TAPE_ASPECT = 3;
+/**
+ * VARSAYIM (kalibre edilecek): sık dokuda sıkışma — iplikler ezilip iç içe geçtiği için kesişimde merkezler arası
+ * mesafe b_üst + b_alt'tan küçülür: D_etkin = c·(b_üst + b_alt), c = 1 − 0.57·smoothstep((d/p − 0.5) / 0.35),
+ * d/p kesişimdeki iki ipliğin doluluğunun büyüğü. Açık dokuda (d/p ≤ 0.5) c = 1 (saf temas); bantlı fixture'da
+ * (d/p ≈ 0.84) c ≈ 0.43 → toplam ≈ 0.86·r, fix-v2 prototip genlikleri (0.45·r + 0.40·r) ile aynı.
+ */
+export const COMPRESS_START = 0.5;
+export const COMPRESS_RANGE = 0.35;
+export const COMPRESS_MAX = 0.57;
+export function compressionFactor(fill: number): number {
+  return 1 - COMPRESS_MAX * smoothstep01((fill - COMPRESS_START) / COMPRESS_RANGE);
+}
+
+/** Uzun atlama koşusu arama sınırı (kesişim). */
+export const FLOAT_RUN_MAX = 16;
+/** Zemin payı: en alçak iplik altının bu kadar r_max altında. */
+export const BG_MARGIN = 0.6;
 export type GeometryModel = 'classic' | 'v2';
+
+/** v2 kesit basıklığı (en/boy). factor: Tuning.flattening. */
+export function flatteningV2(diameterMm: number, pitchMm: number, factor = 1, tape = false): number {
+  if (tape) return TAPE_ASPECT;
+  const k = 1 + factor * V2_FLATTEN_SLOPE * Math.max(0, diameterMm / pitchMm - V2_FLATTEN_START);
+  return Math.min(V2_FLATTEN_MAX, Math.max(1, k));
+}
+
+/**
+ * v2 zemin: en alçak iplik altı ≥ −(2·max(β, 1−β) + 1)·r_max (merkez en fazla max(β, 1−β)·2·b_max iner,
+ * b ≤ r); zemin bunun 0.6·r_max altında → hiçbir iplik zemine gömülmez.
+ */
+export function v2BgHeight(rMax: number, beta: number): number {
+  return -(2 * Math.max(beta, 1 - beta) + 1 + BG_MARGIN) * rMax;
+}
 
 /** Cosine geçiş (1 − cos πs)/2 — prototipteki `sm`. */
 export const cosStep01 = (t: number) => {
@@ -74,8 +117,69 @@ export interface GeometryParams {
   /** Parametre seti; verilmezse 'classic'. */
   model?: GeometryModel;
   flattenFactor: number;
-  /** Zemin yüksekliği = −(en büyük çözgü r + en büyük atkı r)·1.4. */
+  /** Zemin yüksekliği. classic: −(en büyük çözgü r + en büyük atkı r)·1.4; v2: v2BgHeight. */
   bgHeight: number;
+  /** v2: iplik kesit basıklığı k (en/boy); verilmezse 1. */
+  warpFlat?: (i: number) => number;
+  weftFlat?: (j: number) => number;
+  /** v2: örgü rapor boyu (uzun atlama araması için). */
+  weaveSize?: [number, number];
+}
+
+/** Kesit yarı yüksekliği b = r/√k. */
+const semiH = (r: number, k: number) => r / Math.sqrt(k);
+
+/**
+ * v2 temas modeli: kesişim (i, j)'de çözgü ve atkı merkez z'leri (mm).
+ * D_çözgü = c·(b_w(i) + max b_f) (çözgünün bu kesişimi içeren aynı durum koşusunda),
+ * D_atkı = c·(max b_w (atkının koşusunda) + b_f(j)), c = compressionFactor (açık dokuda 1).
+ * Bağlantıda (koşu = 1) z_w − z_f = c·(b_w + b_f); açık dokuda = b_w + b_f.
+ */
+export function crossingZ(i: number, j: number, g: GeometryParams): { zw: number; zf: number } {
+  const up = g.warpUp(i, j);
+  const s = up ? 1 : -1;
+  const beta = g.crimpShare;
+  const kw = (k: number) => g.warpFlat?.(k) ?? 1;
+  const kf = (k: number) => g.weftFlat?.(k) ?? 1;
+  const [ww, wh] = g.weaveSize ?? [FLOAT_RUN_MAX, FLOAT_RUN_MAX];
+  const bwi = semiH(g.warpRadius(i), kw(i));
+  const bfj = semiH(g.weftRadius(j), kf(j));
+  // Çözgü i boyunca (atkılar) aynı durum koşusu
+  let bf = bfj;
+  const limF = Math.min(FLOAT_RUN_MAX, wh);
+  for (let d = 1; d < limF && g.warpUp(i, j + d) === up; d++) bf = Math.max(bf, semiH(g.weftRadius(j + d), kf(j + d)));
+  for (let d = 1; d < limF && g.warpUp(i, j - d) === up; d++) bf = Math.max(bf, semiH(g.weftRadius(j - d), kf(j - d)));
+  // Atkı j boyunca (çözgüler)
+  let bw = bwi;
+  const limW = Math.min(FLOAT_RUN_MAX, ww);
+  for (let d = 1; d < limW && g.warpUp(i + d, j) === up; d++) bw = Math.max(bw, semiH(g.warpRadius(i + d), kw(i + d)));
+  for (let d = 1; d < limW && g.warpUp(i - d, j) === up; d++) bw = Math.max(bw, semiH(g.warpRadius(i - d), kw(i - d)));
+  // doluluk: çap / aralık (b ≈ r; basık iplikte biraz küçük kalır)
+  const cw = compressionFactor(Math.max((2 * bwi) / g.pitchWarp, (2 * bf) / g.pitchWeft));
+  const cf = compressionFactor(Math.max((2 * bw) / g.pitchWarp, (2 * bfj) / g.pitchWeft));
+  return { zw: s * beta * cw * (bwi + bf), zf: -s * (1 - beta) * cf * (bw + bfj) };
+}
+
+/**
+ * v2 kesişim tablosu (GPU uCross dokusu): döşeme periyodu (px × py kesişim) için (z_w, z_f), satır = atkı.
+ * Düzensizlik (kalınlık) indeks mod periyotla — shader'daki threadRand ile aynı.
+ */
+export function crossingTable(g: GeometryParams, px: number, py: number): Float32Array {
+  // Koşu araması periyot dışına taşınca da iplik başına değerler indeks mod periyotla (shader threadRand gibi)
+  const gp: GeometryParams = {
+    ...g,
+    warpRadius: (i) => g.warpRadius(pmod(i, px)),
+    weftRadius: (j) => g.weftRadius(pmod(j, py)),
+  };
+  const out = new Float32Array(px * py * 2);
+  for (let j = 0; j < py; j++) {
+    for (let i = 0; i < px; i++) {
+      const z = crossingZ(i, j, gp);
+      out[(j * px + i) * 2] = z.zw;
+      out[(j * px + i) * 2 + 1] = z.zf;
+    }
+  }
+  return out;
 }
 
 export interface GeometrySample {
@@ -127,16 +231,62 @@ function slope(u: number, a: number, b: number, scale = PROFILE_SCALE): number {
   return (-scale * b * u) / (a * Math.sqrt(Math.max(1 - u * u, 0.0025)));
 }
 
+/** v2 (temas modeli) taban geometrisi — shader'daki taban adımlarıyla aynı (rölyef hariç). */
+function geometryAtV2(X: number, Y: number, g: GeometryParams): GeometrySample {
+  const pw = g.pitchWarp;
+  const pf = g.pitchWeft;
+  const dStep = (t: number) => (Math.PI / 2) * Math.sin(Math.PI * t);
+  let best = { h: -1e3, axis: 0 as 0 | 1 | 2, index: 0, v: 0, a: 0, grad: [0, 0] as [number, number] };
+
+  // Çözgü adayları: kesit x, yol y boyunca kesişim z'lerinden
+  const iv = interval(Y, pf, g.weftCenter);
+  const fW = cosStep01(iv.s);
+  const dsW = dStep(iv.s) / (g.weftCenter(iv.k0 + 1) - g.weftCenter(iv.k0));
+  const i0 = Math.floor(X / pw);
+  for (const i of [i0 - 1, i0, i0 + 1]) {
+    const { a, b } = ellipseAxes(g.warpRadius(i), g.warpFlat?.(i) ?? 1);
+    const dx = X - g.warpCenter(i);
+    if (!(Math.abs(dx) < a)) continue;
+    const z0 = crossingZ(i, iv.k0, g).zw;
+    const z1 = crossingZ(i, iv.k0 + 1, g).zw;
+    const u = dx / a;
+    const h = z0 + (z1 - z0) * fW + b * Math.sqrt(Math.max(0, 1 - u * u));
+    if (h > best.h) best = { h, axis: 1, index: i, v: u, a, grad: [slope(u, a, b, 1), (z1 - z0) * dsW] };
+  }
+
+  // Atkı adayları; eşitlikte çözgü üstte
+  const ih = interval(X, pw, g.warpCenter);
+  const fF = cosStep01(ih.s);
+  const dsF = dStep(ih.s) / (g.warpCenter(ih.k0 + 1) - g.warpCenter(ih.k0));
+  const j0 = Math.floor(Y / pf);
+  const bestWarpH = best.axis === 1 ? best.h : -1e3;
+  for (const j of [j0 - 1, j0, j0 + 1]) {
+    const { a, b } = ellipseAxes(g.weftRadius(j), g.weftFlat?.(j) ?? 1);
+    const dy = Y - g.weftCenter(j);
+    if (!(Math.abs(dy) < a)) continue;
+    const z0 = crossingZ(ih.k0, j, g).zf;
+    const z1 = crossingZ(ih.k0 + 1, j, g).zf;
+    const u = dy / a;
+    const h = z0 + (z1 - z0) * fF + b * Math.sqrt(Math.max(0, 1 - u * u));
+    if (h > best.h && h > bestWarpH) best = { h, axis: 2, index: j, v: u, a, grad: [(z1 - z0) * dsF, slope(u, a, b, 1)] };
+  }
+
+  if (best.axis === 0) return { height: g.bgHeight, axis: 0, index: 0, id: 0, v: 0, a: 0, grad: [0, 0] };
+  const id = best.axis === 1 ? best.index + 1 : -(best.index + 1);
+  return { height: best.h, axis: best.axis, index: best.index, id, v: best.v, a: best.a, grad: best.grad };
+}
+
 /** Bir kumaş noktasının (mm) G-buffer değerleri. Shader ile aynı adımlar. */
 export function geometryAt(X: number, Y: number, g: GeometryParams): GeometrySample {
+  if (g.model === 'v2') return geometryAtV2(X, Y, g);
   const pw = g.pitchWarp;
   const pf = g.pitchWeft;
   const beta = g.crimpShare;
-  const v2 = g.model === 'v2';
-  const prof = v2 ? V2_PROFILE_SCALE : PROFILE_SCALE;
-  const step = v2 ? cosStep01 : smoothstep01;
-  // d(step)/ds: smoothstep 6s(1−s), cosine (π/2)·sin(πs)
-  const dStep = (t: number) => (v2 ? (Math.PI / 2) * Math.sin(Math.PI * t) : 6 * t * (1 - t));
+  // classic (Faz 2)
+  const prof = PROFILE_SCALE;
+  const step = smoothstep01;
+  // d(step)/ds = 6s(1−s)
+  const dStep = (t: number) => 6 * t * (1 - t);
   const jN = nearest(Y, pf, g.weftCenter);
   const iN = nearest(X, pw, g.warpCenter);
   const rfN = g.weftRadius(jN);
@@ -151,11 +301,11 @@ export function geometryAt(X: number, Y: number, g: GeometryParams): GeometrySam
   const i0 = Math.floor(X / pw);
   for (const i of [i0 - 1, i0, i0 + 1]) {
     const rw = g.warpRadius(i);
-    const k = v2 ? 1 : flattening(2 * rw, pw, g.flattenFactor);
+    const k = flattening(2 * rw, pw, g.flattenFactor);
     const { a, b } = ellipseAxes(rw, k);
     const dx = X - g.warpCenter(i);
     if (!(Math.abs(dx) < a)) continue;
-    const amp = v2 ? V2_CRIMP_WARP * rw : (rw + rfN) * beta;
+    const amp = (rw + rfN) * beta;
     const s0 = g.warpUp(i, iv.k0) ? 1 : -1;
     const s1 = g.warpUp(i, iv.k0 + 1) ? 1 : -1;
     const u = dx / a;
@@ -173,11 +323,11 @@ export function geometryAt(X: number, Y: number, g: GeometryParams): GeometrySam
   const bestWarpH = best.axis === 1 ? best.h : -1e3;
   for (const j of [j0 - 1, j0, j0 + 1]) {
     const rf = g.weftRadius(j);
-    const k = v2 ? 1 : flattening(2 * rf, pf, g.flattenFactor);
+    const k = flattening(2 * rf, pf, g.flattenFactor);
     const { a, b } = ellipseAxes(rf, k);
     const dy = Y - g.weftCenter(j);
     if (!(Math.abs(dy) < a)) continue;
-    const amp = v2 ? V2_CRIMP_WEFT * rwN : (rwN + rf) * (1 - beta);
+    const amp = (rwN + rf) * (1 - beta);
     const q0 = g.warpUp(ih.k0, j) ? -1 : 1;
     const q1 = g.warpUp(ih.k0 + 1, j) ? -1 : 1;
     const u = dy / a;
@@ -210,7 +360,7 @@ export function geometryParamsFromInput(
   const ir = resolveIrregularity(input, irregularityMul);
   const pw = pitchMm(input.density.warpPerCm);
   const pf = pitchMm(input.density.weftPerCm);
-  return {
+  const base: GeometryParams = {
     warpUp: (i, j) => data[pmod(j, wefts) * warps + pmod(i, warps)] === 1,
     warpRadius: (i) => warpR[pmod(i, warpR.length)] * thicknessScale(0, i, ir),
     weftRadius: (j) => weftR[pmod(j, weftR.length)] * thicknessScale(1, j, ir),
@@ -222,5 +372,20 @@ export function geometryParamsFromInput(
     flattenFactor,
     model,
     bgHeight: -(Math.max(...warpR) + Math.max(...weftR)) * (1 + ir.thickness) * 1.4,
+  };
+  if (model !== 'v2') return base;
+  // Kesit basıklığı iplik tipine ve kendi sisteminin aralığına bağlı (shader: yarnFlat)
+  const kOf = (t: number, p: number) =>
+    flatteningV2(2 * radiusOfType[t], p, flattenFactor, input.yarnTypes[t].structure === 'tape');
+  const kW = input.warp.map((t) => kOf(t.yarnType, pw));
+  const kF = input.weft.map((t) => kOf(t.yarnType, pf));
+  const beta = input.crimpShare ?? V2_CRIMP_SHARE;
+  return {
+    ...base,
+    crimpShare: beta,
+    warpFlat: (i) => kW[pmod(i, kW.length)],
+    weftFlat: (j) => kF[pmod(j, kF.length)],
+    weaveSize: [warps, wefts],
+    bgHeight: v2BgHeight(Math.max(...warpR, ...weftR) * (1 + ir.thickness), beta),
   };
 }

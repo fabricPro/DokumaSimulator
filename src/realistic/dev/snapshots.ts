@@ -13,6 +13,9 @@ import { expandBandedFixture, inputFromRows, type BandedFixture } from '../fixtu
 import type { FabricInput, ViewParams } from '../types';
 import { brokenTwill13, plain, satin5, twill22, twill31 } from '../../presets/weaves';
 import banded from '../../../fixtures/banded-warp-sample.json';
+import acikSpecJson from '../../../samples/input/acik-coklu-atki.json';
+import { fabricInputFromSpec } from '../adapters/fromSpec';
+import { computeMetrics } from '../../render-engine/physical/metrics';
 
 declare global {
   interface Window {
@@ -679,6 +682,136 @@ async function fixV2(phase: number, say: (t: string) => void) {
   return out;
 }
 
+/**
+ * fix-v3: açık, çok kalınlıklı atkılı doku (samples/input/acik-coklu-atki.json) ve bantlı çözgü gerilemesi.
+ * Kayıtlar samples/realistic/fix-v3/: acik-coklu-atki-{darkgray,black,backlight}.png, banded-warp-detail.png,
+ * compare_yakin.png, perf.json (katmanlı / tek katman), fix-v3.json (açıklık karşılaştırması).
+ */
+const acikSpec = acikSpecJson as unknown as FabricSpec;
+const acikInput = fabricInputFromSpec(acikSpec, { luster: 'yarimat', hairiness: 0.25, twistPerM: 600 });
+
+async function fixV3(phase: number, say: (t: string) => void) {
+  const out: Record<string, unknown> = { light: LIGHT };
+  // 1) Açık doku, üç zemin modu (yakın plan 40 px/mm ≈ 25 px / çözgü aralığı)
+  const openness: Record<string, unknown> = {};
+  for (const bg of ['darkgray', 'black', 'backlight'] as const) {
+    const c = document.createElement('canvas');
+    c.width = SIZE;
+    c.height = SIZE;
+    const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+    r.render(acikInput, { pxPerCm: 400, offsetCm: [0, 0], light: LIGHT, quality: 'high', tuning: { background: bg } });
+    await save(phase, `acik-coklu-atki-${bg}.png`, c.toDataURL('image/png'), 'png');
+    if (bg === 'darkgray') {
+      // Gerçekçi açıklık: 1 − ortalama üst kapsama (kenar yumuşatma dahil; alt katmanın kenar payı yok sayılır)
+      const gb = r.readGBuffer();
+      let covered = 0;
+      for (let k = 0; k < gb.gb1.length; k += 4) if (gb.gb1[k + 2] > 0.5) covered += gb.gb1[k + 3];
+      const realisticPct = 100 * (1 - covered / (gb.width * gb.height));
+      const metricPct = 100 - computeMetrics(acikSpec).cover;
+      Object.assign(openness, { realisticPct: +realisticPct.toFixed(1), metricPct: +metricPct.toFixed(1) });
+    }
+    r.dispose();
+  }
+  out.openness = openness;
+  say('açıklık: ' + JSON.stringify(openness));
+  // 2) Bantlı çözgü yakın plan (fix-v2 ile aynı görünüm)
+  {
+    const s = SAMPLES.find((x) => x.file === 'banded-warp-detail.png')!;
+    const c = document.createElement('canvas');
+    c.width = SIZE;
+    c.height = SIZE;
+    const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+    r.render(s.input, { pxPerCm: s.pxPerCm, offsetCm: [0, 0], light: LIGHT, quality: 'high' });
+    await save(phase, s.file, c.toDataURL('image/png'), 'png');
+    r.dispose();
+  }
+  // 3) Hedefle yakın plan karşılaştırması (fix-v2 compare_yakin ile aynı kurulum)
+  {
+    const W = 1792;
+    const H = 820;
+    const target = await loadImage('/reference/realistic-v2/hedef_yakin_plan_v2.jpg');
+    const ours = renderBanded(W, H, 128, 100);
+    const c = document.createElement('canvas');
+    c.width = 2 * W + 8;
+    c.height = H;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, H);
+    g.drawImage(target, 0, 0, W, H);
+    g.drawImage(ours, W + 8, 0);
+    labelOn(g, 10, 10, 'Hedef (prototip v2)');
+    labelOn(g, W + 18, 10, 'Gerçekçi mod (fix-v3) — aynı desen, 128 px/mm, ışık 129°/37°');
+    await save(phase, 'compare_yakin.png', c.toDataURL('image/png'), 'png');
+  }
+  // 4) Performans: gezinme karesi, katmanlı ↔ tek katman (masaüstü profil, 1024²). Zamanlayıcı sorgusu panel
+  //    gizliyken seyrek / tutarsız döndüğü için duvar saati: render + 1 piksel okuma (GPU'yu bekletir), medyan.
+  {
+    const picks: Array<{ file: string; input: FabricInput; pxPerCm: number }> = [
+      { file: 'acik-coklu-atki', input: acikInput, pxPerCm: 400 },
+      { file: 'banded-warp-detail', input: bandedInput, pxPerCm: 500 },
+      { file: 'plain', input: SAMPLES[0].input, pxPerCm: 500 },
+    ];
+    const rows: Record<string, unknown>[] = [];
+    let gpu = '';
+    for (const layered of [true, false]) {
+      const c = document.createElement('canvas');
+      c.width = SIZE;
+      c.height = SIZE;
+      const r = createRealisticRenderer(c, { singleLayer: !layered });
+      const gl = c.getContext('webgl2') as WebGL2RenderingContext;
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      gpu = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
+      const px = new Uint8Array(4);
+      for (const q of ['medium', 'high'] as const) {
+        for (const smp of picks) {
+          const times: number[] = [];
+          let bakeMs: number | null = null;
+          for (let k = 0; k < 35; k++) {
+            const t0 = performance.now();
+            r.render(smp.input, { pxPerCm: smp.pxPerCm * (1 + 0.01 * (k % 20)), offsetCm: [k * 0.013, k * 0.007], light: LIGHT, quality: q });
+            gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+            if (k === 0) bakeMs = r.stats().bakeMs ?? null;
+            if (k >= 5) times.push(performance.now() - t0);
+          }
+          times.sort((a, b) => a - b);
+          rows.push({
+            layered,
+            quality: q,
+            file: smp.file,
+            method: 'sync-wall',
+            frameMedianMs: +times[Math.floor(times.length / 2)].toFixed(2),
+            frameWorstMs: +times[times.length - 1].toFixed(2),
+            bakeMs: bakeMs === null ? null : +bakeMs.toFixed(1),
+            tile: r.stats().tile,
+          });
+        }
+      }
+      r.dispose();
+    }
+    const med = (l: boolean, f: string, q: string) =>
+      (rows.find((x) => x.layered === l && x.file === f && x.quality === q)?.frameMedianMs as number) ?? NaN;
+    const overhead = picks.map((p) => ({
+      file: p.file,
+      highLayeredMs: med(true, p.file, 'high'),
+      highSingleMs: med(false, p.file, 'high'),
+      extraMs: +(med(true, p.file, 'high') - med(false, p.file, 'high')).toFixed(2),
+    }));
+    const summary = {
+      gpu,
+      size: SIZE,
+      budgetMs: { navigation: 4 },
+      note: 'gezinme karesi (döşeme önbellekten), duvar saati render + 1 piksel okuma; layered=false → RendererOptions.singleLayer (alt katman + kenar yumuşatma kapalı); extraMs = katmanlı çizimin ek maliyeti',
+      layeredOverhead: overhead,
+      rows,
+    };
+    await save(phase, 'perf.json', JSON.stringify(summary, null, 2), 'json');
+    out.perf = { gpu, layeredOverhead: overhead };
+    say('perf: ' + JSON.stringify(out.perf));
+  }
+  await save(phase, 'fix-v3.json', JSON.stringify(out, null, 2), 'json');
+  return out;
+}
+
 async function run() {
   const tagParam = new URLSearchParams(location.search).get('phase') ?? '1';
   const fixTag = /^fix-v\d+$/.test(tagParam) ? tagParam : null;
@@ -694,6 +827,15 @@ async function run() {
     await save(phase, 'report.json', JSON.stringify(report, null, 2), 'json');
     window.__snapshotsReport = report;
     window.__snapshotsDone = true;
+    return;
+  }
+  // fix-v3 (ve sonrası): yalnız bu turun hedefli snapshot'ları
+  if (fixTag && fixTag !== 'fix-v2') {
+    report.fixV3 = await fixV3(phase, say);
+    await save(phase, 'report.json', JSON.stringify(report, null, 2), 'json');
+    window.__snapshotsReport = report;
+    window.__snapshotsDone = true;
+    say('Bitti.');
     return;
   }
   for (const s of SAMPLES) {

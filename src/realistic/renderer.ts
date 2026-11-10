@@ -16,12 +16,13 @@ import { GBUFFER_FS, PREVIEW_FS } from './gl/shaders/gbuffer.glsl';
 import { LIT_FS, OCCLUSION_FS, TILE_FS } from './gl/shaders/lit.glsl';
 import { EXPOSURE, LUSTER_KK_MUL, LUSTER_ORDER, QUALITY_SAMPLES } from './surface';
 import { bakeFiberNoise, FIBER_TEX_SIZE, FIBER_TEXELS_PER_D } from './fiberNoise';
-import { geometryParamsFromInput } from './geometry';
+import { crossingTable, geometryParamsFromInput, v2BgHeight, V2_CRIMP_SHARE } from './geometry';
+import { PLY_K } from './relief';
 import { generateHair } from './hair';
 import { resolveIrregularity } from './irregularity';
-import { packFabric, type PackedFabric } from './pack';
+import { packFabric, threadColors, threadTable, type PackedFabric } from './pack';
 import { pitchMm } from './scale';
-import { bakeDensity, tileFor, type TileInfo } from './tile';
+import { bakeDensity, snapFreq, tileFor, type TileInfo } from './tile';
 import type { FabricInput, RealisticRenderer, RendererOptions, RenderStats, ViewParams } from './types';
 
 interface Uploaded {
@@ -38,6 +39,8 @@ interface Uploaded {
   warpType: WebGLTexture;
   weftType: WebGLTexture;
   yarnTypes: WebGLTexture;
+  /** v2 kesişim z tablosu (RG32F) + iplik tablosu (RGBA32F, pack.ts threadTable); anahtar: düzensizlik / basıklık. */
+  cross: { key: string; tex: WebGLTexture; threads: WebGLTexture; colors: WebGLTexture; halfWidthMax: number } | null;
 }
 
 interface GBuffer {
@@ -46,6 +49,8 @@ interface GBuffer {
   gb1: WebGLTexture;
   /** (kat, ince lif, lif gürültüsü, yükseklik / r_ref), mip'li — AO kutu ortalaması için. */
   gb2: WebGLTexture;
+  /** Alt katman (fix-v3). */
+  gb3: WebGLTexture;
   width: number;
   height: number;
   float: boolean;
@@ -166,6 +171,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
   const freeTextures = () => {
     if (!tex) return;
     for (const t of [tex.weave, tex.warpColor, tex.weftColor, tex.warpType, tex.weftType, tex.yarnTypes]) gl.deleteTexture(t);
+    if (tex.cross) for (const x of [tex.cross.tex, tex.cross.threads, tex.cross.colors]) gl.deleteTexture(x);
     tex = null;
   };
   const freeGB = (g: GBuffer) => {
@@ -173,6 +179,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     gl.deleteTexture(g.gb0);
     gl.deleteTexture(g.gb1);
     gl.deleteTexture(g.gb2);
+    gl.deleteTexture(g.gb3);
   };
   const freeBake = () => {
     if (!bake) return;
@@ -207,7 +214,8 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       weftColor: createTexture(gl, gl.RGBA8, p.counts.weft, 1, gl.RGBA, gl.UNSIGNED_BYTE, p.weftColors),
       warpType: createTexture(gl, gl.R8UI, p.counts.warp, 1, gl.RED_INTEGER, gl.UNSIGNED_BYTE, p.warpTypes),
       weftType: createTexture(gl, gl.R8UI, p.counts.weft, 1, gl.RED_INTEGER, gl.UNSIGNED_BYTE, p.weftTypes),
-      yarnTypes: createTexture(gl, gl.RGBA32F, p.counts.yarnTypes, 1, gl.RGBA, gl.FLOAT, p.yarnTypes),
+      yarnTypes: createTexture(gl, gl.RGBA32F, p.counts.yarnTypes, 2, gl.RGBA, gl.FLOAT, p.yarnTypes),
+      cross: null,
     };
     return tex;
   };
@@ -219,6 +227,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const type = useFloat ? gl.FLOAT : gl.HALF_FLOAT;
     const gb0 = createTexture(gl, fmt, w, h, gl.RGBA, type, null);
     const gb1 = createTexture(gl, fmt, w, h, gl.RGBA, type, null);
+    const gb3 = createTexture(gl, gl.RGBA16F, w, h, gl.RGBA, gl.HALF_FLOAT, null);
     const gb2 = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, gb2);
     const levels = Math.floor(Math.log2(Math.max(w, h))) + 1;
@@ -233,11 +242,12 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, gb0, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, gb1, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, gb2, 0);
-    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT3, gl.TEXTURE_2D, gb3, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2, gl.COLOR_ATTACHMENT3]);
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error('G-buffer oluşturulamadı: ' + status);
-    return { fbo, gb0, gb1, gb2, width: w, height: h, float: useFloat };
+    return { fbo, gb0, gb1, gb2, gb3, width: w, height: h, float: useFloat };
   };
 
   const ensureGBuffer = (w: number, h: number): GBuffer => {
@@ -279,8 +289,47 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     gl.uniform1f(u('uPxPerMm'), v.pxPerCm / 10);
   };
 
-  /** G-buffer geçişi verilen hedefe. ppmXY: px/mm (x, y) — döşemede kenara tam otursun diye ayrı. */
-  const drawGBuffer = (t: Uploaded, input: FabricInput, v: ViewParams, g: GBuffer, ppmXY: [number, number], offsetMm: [number, number]) => {
+  /** v2 kesişim z tablosu (temas modeli) ve iplik tablosu: girdi / düzensizlik / basıklık değişince bir kez CPU'da. */
+  const ensureCross = (t: Uploaded, input: FabricInput, v: ViewParams): NonNullable<Uploaded['cross']> => {
+    const irr = v.tuning?.irregularity ?? 1;
+    const fl = v.tuning?.flattening ?? 1;
+    const key = `${irr}|${fl}`;
+    if (t.cross && t.cross.key === key) return t.cross;
+    if (t.cross) for (const x of [t.cross.tex, t.cross.threads, t.cross.colors]) gl.deleteTexture(x);
+    const [px, py] = t.tile.threads;
+    const data = crossingTable(geometryParamsFromInput(input, fl, irr, 'v2'), px, py);
+    const cx = createTexture(gl, gl.RG32F, px, py, gl.RG, gl.FLOAT, data);
+    const th = threadTable(input, [px, py], irr, fl);
+    const tt = createTexture(gl, gl.RGBA32F, th.width, 8, gl.RGBA, gl.FLOAT, th.data);
+    // En geniş kesit yarı genişliği a = r·√k (satır 0 / 4: (r, kayma, k, d))
+    let halfWidthMax = 0;
+    for (const row of [0, 4]) {
+      for (let i = 0; i < th.width; i++) {
+        const o = (row * th.width + i) * 4;
+        halfWidthMax = Math.max(halfWidthMax, th.data[o] * Math.sqrt(th.data[o + 2]) + Math.abs(th.data[o + 1]));
+      }
+    }
+    const tc = threadColors(input, [px, py], irr);
+    const colors = createTexture(gl, gl.RGBA32F, tc.width, 2, gl.RGBA, gl.FLOAT, tc.data);
+    t.cross = { key, tex: cx, threads: tt, colors, halfWidthMax };
+    return t.cross;
+  };
+
+  /**
+   * G-buffer geçişi verilen hedefe. ppmXY: px/mm (x, y) — döşemede kenara tam otursun diye ayrı.
+   * mip: gb2 mip zinciri (yalnız pişirmede AO kutu ortalaması için; ekranda her karede gereksiz).
+   */
+  const drawGBuffer = (
+    t: Uploaded,
+    input: FabricInput,
+    v: ViewParams,
+    g: GBuffer,
+    ppmXY: [number, number],
+    offsetMm: [number, number],
+    mip = false,
+  ) => {
+    const v2 = (v.tuning?.model ?? 'v2') === 'v2';
+    const cr = v2 ? ensureCross(t, input, v) : null;
     gl.bindFramebuffer(gl.FRAMEBUFFER, g.fbo);
     gl.viewport(0, 0, g.width, g.height);
     gl.useProgram(gbProg);
@@ -290,13 +339,25 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     bindTex(2, t.weftType, ug('uWeftType'));
     bindTex(3, t.yarnTypes, ug('uYarnTypes'));
     bindTex(4, fiberTex, ug('uFiber'));
+    bindTex(5, cr?.tex ?? emptyTex, ug('uCross'));
+    bindTex(6, cr?.threads ?? emptyTex, ug('uThreads'));
+    // iplik boyunca frekanslar döşemeye tam periyot (shader eskiden her pikselde snapF ile hesaplıyordu)
+    const [Px, Py] = t.tile.threads;
+    gl.uniform4f(ug('uFreqW'), snapFreq(0.45, Py), snapFreq(0.13, Py), snapFreq(0.9, Py), snapFreq(0.31, Py));
+    gl.uniform3f(ug('uFreqF'), snapFreq(0.45, Px), snapFreq(0.13, Px), snapFreq(0.7, Px));
+    // En geniş kesit (+ boyunca kalınlık %7, yol sapması ≤ 0.09·p, AA yarım pikseli) en küçük aralığı aşarsa 4 aday
+    const pMin = Math.min(pitchMm(input.density.warpPerCm), pitchMm(input.density.weftPerCm));
+    const halfW = (cr?.halfWidthMax ?? 0) * 1.07 + 0.09 * pMin + 1 / Math.min(ppmXY[0], ppmXY[1]);
+    gl.uniform1i(ug('uSpan'), halfW < pMin ? 1 : 2);
     commonUniforms(ug, t, input, v);
+    gl.uniform1i(ug('uLayered'), opts.singleLayer ? 0 : 1);
+    gl.uniform1f(ug('uPlyK'), PLY_K);
     gl.uniform2f(ug('uOffsetMm'), offsetMm[0], offsetMm[1]);
     gl.uniform1f(ug('uPxPerMm'), Math.sqrt(ppmXY[0] * ppmXY[1]));
     gl.uniform2f(ug('uPxPerMmXY'), ppmXY[0], ppmXY[1]);
     gl.uniform2i(ug('uPeriod'), t.tile.threads[0], t.tile.threads[1]);
     gl.uniform2f(ug('uTileMm'), t.tile.mm[0], t.tile.mm[1]);
-    gl.uniform1i(ug('uModel'), (v.tuning?.model ?? 'v2') === 'v2' ? 1 : 0);
+    gl.uniform1i(ug('uModel'), v2 ? 1 : 0);
     gl.uniform1f(ug('uRelief'), v.tuning?.relief ?? 1);
     gl.uniform1f(ug('uAlongMul'), Math.max(0, v.tuning?.irregularity ?? 1));
     gl.uniform1f(ug('uRRef'), t.rMax);
@@ -305,14 +366,16 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     gl.uniform1f(ug('uCrimpShare'), input.crimpShare ?? 0.4);
     gl.uniform1f(ug('uFlatten'), v.tuning?.flattening ?? 1);
     const ir = resolveIrregularity(input, v.tuning?.irregularity ?? 1);
-    gl.uniform1f(ug('uBgHeight'), bgHeightFor(t, ir.thickness));
+    gl.uniform1f(ug('uBgHeight'), v2 ? v2BgHeight(t.rMax * (1 + ir.thickness), input.crimpShare ?? V2_CRIMP_SHARE) : bgHeightFor(t, ir.thickness));
     gl.uniform1ui(ug('uSeed'), ir.seed);
     gl.uniform1f(ug('uThick'), ir.thickness);
     gl.uniform1f(ug('uPos'), ir.position);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.bindTexture(gl.TEXTURE_2D, g.gb2);
-    gl.generateMipmap(gl.TEXTURE_2D);
+    if (mip) {
+      gl.bindTexture(gl.TEXTURE_2D, g.gb2);
+      gl.generateMipmap(gl.TEXTURE_2D);
+    }
   };
 
   /** Işık geçişi: verilen G-buffer + pişirilmiş döşemeler → hedef (null = ekran). */
@@ -341,6 +404,10 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     bindTex(7, t.yarnTypes, ul('uYarnTypes'));
     bindTex(8, g.gb2, ul('uGb2'));
     bindTex(9, hairTex ?? emptyTex, ul('uHairTile'));
+    bindTex(10, g.gb3, ul('uGb3'));
+    bindTex(11, ensureCross(t, input, v).colors, ul('uThreadColor'));
+    const bg = v.tuning?.background ?? 'darkgray';
+    gl.uniform1i(ul('uBg'), bg === 'black' ? 1 : bg === 'backlight' ? 2 : 0);
     gl.uniform1i(ul('uHairOn'), hairTex ? 1 : 0);
     gl.uniform1i(ul('uWarpCount'), t.packed.counts.warp);
     gl.uniform1i(ul('uWeftCount'), t.packed.counts.weft);
@@ -441,7 +508,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       tn.relief ?? 1,
       tn.model ?? 'v2',
       tn.flattening ?? 1,
-      profile === 'mobile' ? [tn.hairiness ?? 1, tn.specularStrength ?? 1, tn.specularWidth ?? 1, tn.melange ?? 1] : 0,
+      profile === 'mobile' ? [tn.hairiness ?? 1, tn.specularStrength ?? 1, tn.specularWidth ?? 1, tn.melange ?? 1, tn.background ?? 'darkgray'] : 0,
     ]);
     if (bake && bake.key === key) return bake;
     freeBake();
@@ -454,7 +521,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const ppm = Math.sqrt(ppmXY[0] * ppmXY[1]);
     // 1) döşeme G-buffer'ı (yarım hassasiyet, sarmalı)
     const g = makeGBuffer(w, h, true, true);
-    drawGBuffer(t, input, v, g, ppmXY, [0, 0]);
+    drawGBuffer(t, input, v, g, ppmXY, [0, 0], true);
     // 2) AO + gölge (sarmalı komşuluk)
     const occ = makeTarget(w, h, false);
     gl.bindFramebuffer(gl.FRAMEBUFFER, occ.fbo);

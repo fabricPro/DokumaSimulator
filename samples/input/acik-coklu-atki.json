@@ -1,0 +1,201 @@
+{
+ "version": 2,
+ "_note": "fix-v3 test deseni (armür perde benzeri): açık yapı (~%40 açıklık), gri çözgüler arasında 8'de 1 kalın beyaz çözgü (×1.6 çap); atkıda gri, kalın sarı (×2 çap, 3 çözgü üstünden flotte), ince mavi (×0.5 çap) ve beyaz.",
+ "weave": [
+  [
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false
+  ],
+  [
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true
+  ],
+  [
+   false,
+   false,
+   true,
+   false,
+   false,
+   false,
+   true,
+   false
+  ],
+  [
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true
+  ],
+  [
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false
+  ],
+  [
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true
+  ],
+  [
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false
+  ],
+  [
+   false,
+   false,
+   false,
+   true,
+   false,
+   false,
+   false,
+   true
+  ],
+  [
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false
+  ],
+  [
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true
+  ],
+  [
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false
+  ],
+  [
+   false,
+   true,
+   false,
+   true,
+   false,
+   true,
+   false,
+   true
+  ]
+ ],
+ "warpSlots": [
+  {
+   "name": "A",
+   "count": 34,
+   "system": "Nm",
+   "color": "#8a8986",
+   "twist": "Z"
+  },
+  {
+   "name": "B",
+   "count": 13,
+   "system": "Nm",
+   "color": "#f2f0ea",
+   "twist": "Z"
+  }
+ ],
+ "warpSequence": [
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1
+ ],
+ "weftSlots": [
+  {
+   "name": "A",
+   "count": 34,
+   "system": "Nm",
+   "color": "#8f8d89",
+   "twist": "Z"
+  },
+  {
+   "name": "B",
+   "count": 8.5,
+   "system": "Nm",
+   "color": "#e0b52e",
+   "twist": "Z"
+  },
+  {
+   "name": "C",
+   "count": 136,
+   "system": "Nm",
+   "color": "#2f5fae",
+   "twist": "S"
+  },
+  {
+   "name": "D",
+   "count": 34,
+   "system": "Nm",
+   "color": "#f4f2ec",
+   "twist": "Z"
+  }
+ ],
+ "weftSequence": [
+  0,
+  0,
+  1,
+  0,
+  2,
+  3,
+  0,
+  1,
+  0,
+  2,
+  2,
+  3
+ ],
+ "warpDensityLoom": 16,
+ "weftDensityLoom": 13,
+ "warpShrinkPct": 0,
+ "weftShrinkPct": 0,
+ "warpCrimpShare": 0.4
+}

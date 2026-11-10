@@ -28,6 +28,8 @@ import {
 import { fabricInputFromSpec } from '../realistic/adapters/fromSpec';
 
 export type QualityPref = Quality | 'auto';
+/** Gerçekçi görünümde boşlukların zemini (fix-v3): koyu gri, siyah, arkadan ışık (perde ışık geçirgenliği). */
+export type BackgroundPref = 'darkgray' | 'black' | 'backlight';
 
 export interface RealisticLayerProps {
   spec: FabricSpec;
@@ -38,6 +40,8 @@ export interface RealisticLayerProps {
   pxPerMm: number;
   loupe: boolean;
   quality: QualityPref;
+  /** Boşluk zemini; verilmezse koyu gri. */
+  background?: BackgroundPref;
   onState: (s: { ok: boolean; text: string }) => void;
   /** Verilmezse dokunmatik (pointer: coarse) cihazda 'mobile', aksi hâlde 'desktop'. */
   profile?: 'desktop' | 'mobile';
@@ -111,7 +115,8 @@ export default function RealisticLayer(p: RealisticLayerProps) {
   }, [profile, p.originMm[0], p.originMm[1], p.pxPerMm]);
 
   // Mobil: desen / kalite değişince döşeme yeniden pişer → önce göstergeyi boya, sonra render
-  const bakeKey = `${level.quality}`;
+  const background = p.background ?? 'darkgray';
+  const bakeKey = `${level.quality}|${background}`;
   const bakedFor = useRef<{ input: unknown; key: string } | null>(null);
   const needsBake = profile === 'mobile' && (!bakedFor.current || bakedFor.current.input !== input || bakedFor.current.key !== bakeKey);
   useEffect(() => {
@@ -139,6 +144,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
           offsetCm: [p.originMm[0] / 10, p.originMm[1] / 10],
           light: LIGHT,
           quality: level.quality,
+          tuning: { background },
         });
       } catch {
         onStateRef.current({ ok: false, text: '' });
@@ -183,7 +189,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     };
     // level nesnesi her render'da yenidir; içeriği quality + scale
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile]);
+  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile, background]);
 
   const hidden = width < 2 || height < 2;
   return (

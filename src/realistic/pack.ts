@@ -5,9 +5,15 @@
  *    WebGL'de doku satır 0 v = 0'dadır, kumaşta da y = 0 alttır; ters çevirme yok.
  *  - warpColors / weftColors: RGBA8, n × 1 (sRGB renk, alfa 255).
  *  - warpTypes / weftTypes: R8UI, n × 1 (yarnTypes indeksi).
- *  - yarnTypes: RGBA32F, m × 1: (çap mm, büküm tur/mm işaretli: S = −, Z = +, parlaklık 0/1/2, tüylülük).
+ *  - yarnTypes: RGBA32F, m × 2: satır 0 (çap mm, büküm tur/mm işaretli: S = −, Z = +, parlaklık 0/1/2, tüylülük);
+ *    satır 1 (kat sayısı, yapı 0 eğrilmiş / 1 yassı bant, 0, 0) — fix-v3.
  */
 import { DEFAULT_YARN_DENSITY, diameterMm, toTex } from './yarn';
+import { flatteningV2 } from './geometry';
+import { threadRand } from './hash';
+import { colorOffsetOklab, linearToOklab, oklabToLinear, resolveIrregularity } from './irregularity';
+import { srgbToLinear } from './surface';
+import { pitchMm, pmod } from './scale';
 import type { FabricInput, Luster } from './types';
 
 export const DEFAULT_TWIST_PER_M = 500;
@@ -60,7 +66,8 @@ export function packFabric(input: FabricInput): PackedFabric {
     return out;
   };
   const types = (list: FabricInput['warp']) => Uint8Array.from(list, (t) => t.yarnType);
-  const yt = new Float32Array(input.yarnTypes.length * 4);
+  const m = input.yarnTypes.length;
+  const yt = new Float32Array(m * 8);
   input.yarnTypes.forEach((y, i) => {
     const d = diameterMm(toTex(y.count, y.unit), y.yarnDensity ?? DEFAULT_YARN_DENSITY);
     const tpmm = (y.twistPerM ?? DEFAULT_TWIST_PER_M) / 1000;
@@ -68,6 +75,8 @@ export function packFabric(input: FabricInput): PackedFabric {
     yt[i * 4 + 1] = y.twist === 'S' ? -tpmm : tpmm;
     yt[i * 4 + 2] = LUSTER_INDEX[y.luster];
     yt[i * 4 + 3] = Math.max(0, Math.min(1, y.hairiness));
+    yt[(m + i) * 4] = Math.max(1, y.plies ?? 2);
+    yt[(m + i) * 4 + 1] = y.structure === 'tape' ? 1 : 0;
   });
   return {
     weave: { width: input.weave.warps, height: input.weave.wefts, data: input.weave.data },
@@ -78,4 +87,65 @@ export function packFabric(input: FabricInput): PackedFabric {
     yarnTypes: yt,
     counts: { warp: input.warp.length, weft: input.weft.length, yarnTypes: input.yarnTypes.length },
   };
+}
+
+/**
+ * fix-v3 iplik tablosu (GPU uThreads, RGBA32F, genişlik max(px, py), 8 satır): iplik başına sabitler bir kez
+ * CPU'da; shader her pikselde 6 aday × ~8 pcg hash yerine 4 texel okur (G-buffer'ın ana ALU yükü buydu).
+ * Satır 4·eksen + k (eksen 0 çözgü, 1 atkı), indeks mod döşeme periyodu:
+ *   k = 0: (taban yarıçap mm = d/2·(1 + kalınlık·t₀), merkez kayması mm = konum·p·t₁, basıklık k, çap d)
+ *   k = 1: (π·t₅, π·t₆, t₇, t₈)          — iplik boyunca kalınlık fazları, yol sapması genlikleri
+ *   k = 2: (π·t₉, t₁₀, t₁₁, 0)           — yol fazı, lif dokusu ötelemesi
+ *   k = 3: (±büküm tur/mm, kat, bant 0/1, 0)
+ * tᵢ = threadRand(eksen, indeks mod periyot, kanal i) — shader'daki eski threadRand çağrılarıyla birebir.
+ */
+export function threadTable(
+  input: FabricInput,
+  period: [number, number],
+  irregularityMul = 1,
+  flattenFactor = 1,
+): { width: number; data: Float32Array } {
+  const ir = resolveIrregularity(input, irregularityMul);
+  const width = Math.max(period[0], period[1]);
+  const data = new Float32Array(width * 8 * 4);
+  const pitch = [pitchMm(input.density.warpPerCm), pitchMm(input.density.weftPerCm)];
+  for (const ax of [0, 1] as const) {
+    const list = ax === 0 ? input.warp : input.weft;
+    for (let i = 0; i < period[ax]; i++) {
+      const y = input.yarnTypes[list[pmod(i, list.length)].yarnType];
+      const d = diameterMm(toTex(y.count, y.unit), y.yarnDensity ?? DEFAULT_YARN_DENSITY);
+      const t = (ch: number) => threadRand(ax, i, ch, ir.seed);
+      const row = (k: number, v: [number, number, number, number]) => data.set(v, ((ax * 4 + k) * width + i) * 4);
+      const T = (y.twistPerM ?? DEFAULT_TWIST_PER_M) / 1000;
+      row(0, [0.5 * d * (1 + ir.thickness * t(0)), ir.position * pitch[ax] * t(1), flatteningV2(d, pitch[ax], flattenFactor, y.structure === 'tape'), d]);
+      row(1, [Math.PI * t(5), Math.PI * t(6), t(7), t(8)]);
+      row(2, [Math.PI * t(9), t(10), t(11), 0]);
+      row(3, [y.twist === 'S' ? -T : T, Math.max(1, y.plies ?? 2), y.structure === 'tape' ? 1 : 0, 0]);
+    }
+  }
+  return { width, data };
+}
+
+/**
+ * fix-v3 iplik renk tablosu (GPU uThreadColor, RGBA32F, genişlik max(px, py), 2 satır: çözgü, atkı): doğrusal
+ * albedo + Faz 4 OKLab renk sapması (eskiden ışık geçişinde her pikselde iki kez OKLab dönüşümü yapılıyordu).
+ */
+export function threadColors(input: FabricInput, period: [number, number], irregularityMul = 1): { width: number; data: Float32Array } {
+  const ir = resolveIrregularity(input, irregularityMul);
+  const width = Math.max(period[0], period[1]);
+  const data = new Float32Array(width * 2 * 4);
+  for (const ax of [0, 1] as const) {
+    const list = ax === 0 ? input.warp : input.weft;
+    for (let i = 0; i < period[ax]; i++) {
+      const [r, g, b] = hexToRgba(list[pmod(i, list.length)].color);
+      let lin: [number, number, number] = [srgbToLinear(r / 255), srgbToLinear(g / 255), srgbToLinear(b / 255)];
+      if (ir.colorDeltaE > 0) {
+        const lab = linearToOklab(lin);
+        const dl = colorOffsetOklab(ax, i, ir);
+        lin = oklabToLinear([lab[0] + dl[0], lab[1] + dl[1], lab[2] + dl[2]]).map((c) => Math.max(0, c)) as [number, number, number];
+      }
+      data.set([lin[0], lin[1], lin[2], 1], (ax * width + i) * 4);
+    }
+  }
+  return { width, data };
 }

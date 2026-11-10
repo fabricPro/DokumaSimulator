@@ -19,6 +19,13 @@ export interface YarnType {
   hairiness: number;
   /** İplik hacim yoğunluğu (g/cm³), çap hesabı için. Varsayılan 0.85. */
   yarnDensity?: number;
+  /** Kat sayısı (kat oluğu aralığı = K / (kat · T)). Varsayılan 2. */
+  plies?: number;
+  /**
+   * Yapı: 'spun' (varsayılan; eğrilmiş, kesit yuvarlağa yakın, basıklık yalnız sıkışmadan, en/boy ≤ 1.4) ya da
+   * 'tape' (yassı bant / multifilament: en/boy 3, kat oluğu yok).
+   */
+  structure?: 'spun' | 'tape';
 }
 
 /** Rapor dizisindeki bir iplik. */
@@ -97,8 +104,13 @@ export interface Tuning {
   model?: 'classic' | 'v2';
   /** v2 yüzey rölyefi çarpanı (kat, lif); 0 = yalnız taban geometri. Varsayılan 1. */
   relief?: number;
-  /** Melanj (iplik boyunca renk dalgalanması) çarpanı; 1 = prototip (±%10 lif, ±%5 ince lif). */
+  /** Melanj (iplik boyunca renk dalgalanması) çarpanı; 1 = fix-v3 (≈ ±%6: lif ±%4.5, ince lif ±%1.5). */
   melange?: number;
+  /**
+   * Zemin (boşluk) görünümü (fix-v3): 'darkgray' (varsayılan, doğrusal ≈ 0.02), 'black', 'backlight' (arkadan
+   * ışık: boşluklar aydınlık, iplikler koyu siluet + hafif kenar ışığı; perde ışık geçirgenliği).
+   */
+  background?: 'darkgray' | 'black' | 'backlight';
 }
 
 export interface ViewParams {
@@ -155,4 +167,6 @@ export interface RendererOptions {
    * karede yalnız döşenir (salt görüntüleme; çok yakında döşeme çözünürlüğü kadar keskin).
    */
   profile?: 'desktop' | 'mobile';
+  /** Hata ayıklama / ölçüm: katmanlı çizimi kapat (yalnız üst iplik, kenar yumuşatma yok). Varsayılan false. */
+  singleLayer?: boolean;
 }

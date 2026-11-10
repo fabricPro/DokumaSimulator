@@ -31,17 +31,18 @@ describe('çap', () => {
   });
 });
 
-describe('kat aralığı (göreli model k·d·T₀/T)', () => {
+describe('kat aralığı (fiziksel K·π·d / (kat·tan α), K kalibre)', () => {
   const d = diameterMm(toTex(20, 'Ne'));
-  it('700 tur/m → 1.1·d, 1400 tur/m → yarısı, büküm yoksa varsayılan 500', () => {
+  it('bantlı fixture (Ne 20, 700 tur/m, 2 kat) → 1.1·d; 1400 tur/m → yarısı; büküm yoksa varsayılan 500', () => {
     expect(plySpacingMm(d, 700)).toBeCloseTo(1.1 * d, 12);
     expect(plySpacingMm(d, 1400)).toBeCloseTo(0.55 * d, 12);
     expect(plySpacingMm(d)).toBeCloseTo(1.1 * d * (700 / 500), 12);
     expect(plySpacingMm(d, 0)).toBe(Infinity);
     expect(() => plySpacingMm(0, 700)).toThrow();
   });
-  it('çapla orantılı: iki kat kalın iplik iki kat seyrek oluk', () => {
-    expect(plySpacingMm(2 * d, 700) / plySpacingMm(d, 700)).toBeCloseTo(2, 12);
+  it('fiziksel: aralık = K/(kat·T) — tan α = π·d·T ile çap sadeleşir; 3 kat → 2/3', () => {
+    expect(plySpacingMm(2 * d, 700)).toBeCloseTo(plySpacingMm(d, 700), 12);
+    expect(plySpacingMm(d, 700, 3) / plySpacingMm(d, 700)).toBeCloseTo(2 / 3, 12);
   });
   it('oluk eğimi (merkezde) 2·aralık/(π·d); 1.1·d → ≈0.70', () => {
     expect(plyCentreSlope(d, 1.1 * d)).toBeCloseTo(2.2 / Math.PI, 12);

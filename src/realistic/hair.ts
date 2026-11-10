@@ -1,25 +1,32 @@
 /**
- * fix-v2 adım 2 (D): tüylülük — iplik yüzeyinden çıkan kısa, kavisli lifler (prototip_render_v2.py).
- * Döşeme başına bir kez CPU'da üretilir (saf, deterministik), renderer saydam bir dokuya çizer; gezinmede
- * yalnız okunur.
+ * Tüylülük (D) — iplik yüzeyinden çıkan kısa, yüzeye yakın lifler. Döşeme başına bir kez CPU'da üretilir
+ * (saf, deterministik), renderer saydam bir dokuya çizer; gezinmede yalnız okunur.
  *
- * Prototip: aralık² başına 5 lif (tüylülük 0.35 iken); kök rastgele, boşlukta değil; açı iplik ekseni
- * ± N(0, 0.5) rad (≈ ±29°); uzunluk U(0.25, 0.9)·aralık; 4 parça, her parçada açı + N(0, 0.25);
- * renk kökün rengi ×1.15 + 12 (shader'da, ışıkla); opaklık U(60, 140)/255.
- * VARSAYIM (kalibre edilecek): yoğunluk iplik tüylülüğüyle doğru orantılı, 0.35 → 5 lif / aralık².
+ * fix-v3 (v2'de uzun, düz, kontrastlı lifler siyah zeminde çizik gibiydi): aralık² başına 5 aday
+ * (tüylülük 0.35 iken); kök rastgele, boşlukta değil; açı iplik ekseni ± N(0, 0.25) rad; uzunluk
+ * U(0.1, 0.3)·d (kök ipliğin çapı); 4 parça, her parçada açı + N(0, 0.15); opaklık U(20, 55)/255; renk kökün
+ * ışıklı rengi ×1.05 + 4 (shader'da). Ucu zemine (boşluğa) taşan lif seyrek (kabul ×0.3) ve çok soluk (×0.25).
+ * VARSAYIM (kalibre edilecek): yoğunluk iplik tüylülüğüyle doğru orantılı.
  */
 import { geometryAt, geometryParamsFromInput } from './geometry';
+import { DEFAULT_YARN_DENSITY, diameterMm, toTex } from './yarn';
 import { pmod, pitchMm } from './scale';
 import type { TileInfo } from './tile';
 import type { FabricInput } from './types';
 
 export const HAIR_PER_PITCH2_AT_REF = 5;
 export const HAIR_REF_HAIRINESS = 0.35;
-export const HAIR_ANGLE_SIGMA = 0.5;
-export const HAIR_BEND_SIGMA = 0.25;
-export const HAIR_LEN_MIN = 0.25;
-export const HAIR_LEN_MAX = 0.9;
+export const HAIR_ANGLE_SIGMA = 0.25;
+export const HAIR_BEND_SIGMA = 0.15;
+/** Uzunluk, kök ipliğin çapı d cinsinden. */
+export const HAIR_LEN_MIN = 0.1;
+export const HAIR_LEN_MAX = 0.3;
 export const HAIR_SEGMENTS = 4;
+export const HAIR_ALPHA_MIN = 20 / 255;
+export const HAIR_ALPHA_MAX = 55 / 255;
+/** Ucu boşluğa taşan lif: kabul olasılığı ve opaklık çarpanı. */
+export const HAIR_GAP_ACCEPT = 0.3;
+export const HAIR_GAP_ALPHA = 0.25;
 
 export interface HairStroke {
   /** Polyline noktaları (mm, kumaş uzayı, döşeme içinde kök; uçlar döşeme dışına taşabilir). */
@@ -57,7 +64,8 @@ export function generateHair(input: FabricInput, tile: TileInfo, hairMul = 1, se
   const pw = pitchMm(input.density.warpPerCm);
   const hairOf = (axis: 1 | 2, idx: number) => {
     const t = axis === 1 ? input.warp[pmod(idx, input.warp.length)] : input.weft[pmod(idx, input.weft.length)];
-    return { h: input.yarnTypes[t.yarnType]?.hairiness ?? 0, color: t.color };
+    const y = input.yarnTypes[t.yarnType];
+    return { h: y?.hairiness ?? 0, color: t.color, d: diameterMm(toTex(y.count, y.unit), y.yarnDensity ?? DEFAULT_YARN_DENSITY) };
   };
   const hMax = Math.max(0, ...input.yarnTypes.map((y) => y.hairiness));
   if (hMax <= 0 || hairMul <= 0) return [];
@@ -72,12 +80,14 @@ export function generateHair(input: FabricInput, tile: TileInfo, hairMul = 1, se
     // rastgele sayı akışı kabul / ret'ten bağımsız kalsın diye hepsi önceden çekilir
     const accept = rnd();
     const a0 = gauss(rnd);
-    const len = (HAIR_LEN_MIN + (HAIR_LEN_MAX - HAIR_LEN_MIN) * rnd()) * pw;
+    const lenU = rnd();
     const bends = [gauss(rnd), gauss(rnd), gauss(rnd), gauss(rnd)];
-    const alpha = (60 + 80 * rnd()) / 255;
+    let alpha = HAIR_ALPHA_MIN + (HAIR_ALPHA_MAX - HAIR_ALPHA_MIN) * rnd();
+    const gapU = rnd();
     if (s.axis === 0) continue; // boşlukta kök yok
     const root = hairOf(s.axis, s.index);
     if (accept > root.h / hMax) continue; // tüylülüğe göre yoğunluk
+    const len = (HAIR_LEN_MIN + (HAIR_LEN_MAX - HAIR_LEN_MIN) * lenU) * root.d;
     let ang = (s.axis === 1 ? Math.PI / 2 : 0) + HAIR_ANGLE_SIGMA * a0;
     let cx = x;
     let cy = y;
@@ -87,6 +97,10 @@ export function generateHair(input: FabricInput, tile: TileInfo, hairMul = 1, se
       cx += (Math.cos(ang) * len) / HAIR_SEGMENTS;
       cy += (Math.sin(ang) * len) / HAIR_SEGMENTS;
       pts.push([cx, cy]);
+    }
+    if (geometryAt(cx, cy, g).axis === 0) {
+      if (gapU > HAIR_GAP_ACCEPT) continue;
+      alpha *= HAIR_GAP_ALPHA;
     }
     out.push({ pts, alpha, color: root.color, axis: s.axis });
   }

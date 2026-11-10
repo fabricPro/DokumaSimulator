@@ -19,7 +19,7 @@ import { FabricPane, LOUPE_ZOOM, MAX_PPM, MIN_PPM, REALISTIC_FULL_PPM, type MmVi
 import { MetricsBar } from './MetricsBar';
 import { RenderClient, imageToCanvas } from './renderClient';
 import { WeaveEditor } from './WeaveEditor';
-import type { QualityPref } from './RealisticLayer';
+import type { BackgroundPref, QualityPref } from './RealisticLayer';
 
 /** Kalibrasyon görünümü ve gerçekçi render modülü ayrı parça olarak, ilk açılışta yüklenir. */
 const CalibrationView = lazy(() => import('./CalibrationView'));
@@ -65,14 +65,18 @@ export function App() {
   // Faz 6: gerçekçi görünüm (varsayılan kapalı; destek yoksa düğme sessizce devre dışı kalır)
   const [realOn, setRealOn] = useState(false);
   const [realQuality, setRealQuality] = useState<QualityPref>('auto');
+  const [realBackground, setRealBackground] = useState<BackgroundPref>('darkgray');
   const [realUnavailable, setRealUnavailable] = useState(false);
   const onRealUnavailable = useCallback(() => {
     setRealUnavailable(true);
     setRealOn(false);
   }, []);
   const realistic = useMemo(
-    () => (realOn && !realUnavailable ? { quality: realQuality, densities: 'finished' as const, onUnavailable: onRealUnavailable } : undefined),
-    [realOn, realUnavailable, realQuality, onRealUnavailable],
+    () =>
+      realOn && !realUnavailable
+        ? { quality: realQuality, background: realBackground, densities: 'finished' as const, onUnavailable: onRealUnavailable }
+        : undefined,
+    [realOn, realUnavailable, realQuality, realBackground, onRealUnavailable],
   );
   const [calibOpened, setCalibOpened] = useState(false);
 
@@ -391,6 +395,13 @@ export function App() {
               <option value="high">Kalite: yüksek</option>
               <option value="medium">Kalite: orta</option>
               <option value="low">Kalite: düşük</option>
+            </select>
+          )}
+          {realOn && (
+            <select value={realBackground} onChange={(e) => setRealBackground(e.target.value as BackgroundPref)} title="Boşlukların zemini (arkadan ışık: perde ışık geçirgenliği)">
+              <option value="darkgray">Zemin: koyu gri</option>
+              <option value="black">Zemin: siyah</option>
+              <option value="backlight">Zemin: arkadan ışık</option>
             </select>
           )}
           <label className="seed">

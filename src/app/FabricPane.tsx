@@ -4,7 +4,7 @@ import { DENT_BAND, LINK_BAND, drawReedStrip, type ReedStripInfo } from './reedS
 export type { ReedStripInfo } from './reedStrip';
 import type { PhysicalInfo } from '../render-engine/worker';
 import { imageToCanvas, RenderClient } from './renderClient';
-import type { QualityPref } from './RealisticLayer';
+import type { BackgroundPref, QualityPref } from './RealisticLayer';
 
 /** Gerçekçi katman ayrı parça: yalnız "Gerçekçi" açılınca yüklenir (gerçekçi modülle birlikte). */
 const RealisticLayer = lazy(() => import('./RealisticLayer'));
@@ -19,6 +19,7 @@ export const LOUPE_ZOOM = 4;
 
 export interface RealisticOptions {
   quality: QualityPref;
+  background: BackgroundPref;
   /** 'finished': mamul paneli (ortalama mamul sıklığı). */
   densities: 'loom' | 'finished';
   /** Destek yok / bağlam kaybı: uygulama düğmeyi kapatır, CPU render sürer. */
@@ -416,6 +417,7 @@ export function FabricPane({
             pxPerMm={layer?.ppm ?? view.pxPerMm}
             loupe={layer?.loupe ?? true}
             quality={realistic.quality}
+            background={realistic.background}
             onState={(s) => {
               if (!s.ok) realistic.onUnavailable();
               setRealText(s.text);
