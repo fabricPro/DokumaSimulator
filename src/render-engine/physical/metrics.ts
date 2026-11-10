@@ -3,12 +3,16 @@
  *  - Ashenhurst sıkışma oranı yanal bağlantıyla (I = Σ w_k) hesaplanır; referans eksenleri ters
  *    sayıyordu (bkz. squeeze.ts). Kıvrım için iplik boyunca bağlantı kullanılmaya devam eder.
  *  - Konum tabanlı metrikler: çekmenin ulaşılabilirliği, en büyük gözenek, ortalama grup genişliği.
- * Açıklık % render'dan gelir (arka plan piksel oranı).
+ * Açıklık ve paketlenmiş örtme: temas tabanlı paketleme modelinden (realistic/packing.ts; gerçekçi render ile aynı
+ * model, mamul konumlarında). Peirce örtmesi (`cover`, sert yuvarlak iplik) "teorik" bilgi olarak kalır (Python
+ * referansıyla karşılaştırma bu alanla yapılır).
  */
 import type { FabricSpec } from '../types';
 import { finishedDensities } from './shrinkage';
 import { alongYarnInterlacing, ashenhurstMax } from './squeeze';
-import { buildFabricPositions, type AxisPositions, type FabricPositions } from './shrinkDistribution';
+import { appliedShrinkPct, buildFabricPositions, type AxisPositions, type FabricPositions } from './shrinkDistribution';
+import { packedOpenPctOfSpec } from '../../realistic/adapters/positionsFromSpec';
+import type { PackingOverrides } from '../../realistic/packing';
 import { racetrack } from './simulate';
 import { slotTable } from './yarns';
 
@@ -19,8 +23,16 @@ export interface FabricMetrics {
   Dw: number;
   /** Mamul atkı sıklığı (atkı/cm). */
   Df: number;
-  /** Örtme faktörü % = 100·(1 − (1−cw)(1−cf)). */
+  /** Teorik (yuvarlak iplik, Peirce) örtme faktörü % = 100·(1 − (1−cw)(1−cf)). */
   cover: number;
+  /** Paketleme modeliyle açıklık % (izdüşüm; mamul konumları). */
+  openPct: number;
+  /** Paketleme modeliyle örtme % = 100 − openPct. */
+  coverPacked: number;
+  /** Teorik (yuvarlak iplik) açıklık % = 100 − cover. */
+  openTheoretical: number;
+  /** Uygulanan çekme % (girilen fiziksel sınırı aşıyorsa ulaşılabilen en büyük). */
+  appliedShrinkPct: { warp: number; weft: number };
   coverWarp: number;
   coverWeft: number;
   /** Kıvrım % (Peirce yaklaşığı, iplik boyunca bağlantı). */
@@ -58,6 +70,10 @@ export interface MetricsOptions {
   defaultYarnDensity?: number;
   /** Kıvrım payını ezer (kalibrasyon). */
   warpCrimpShareOverride?: number;
+  /** Hazır konumlar (verilmezse spec'ten üretilir). */
+  positions?: FabricPositions;
+  /** Paketleme parametreleri (kalibrasyon; verilmezse varsayılan). */
+  packing?: PackingOverrides;
 }
 
 export function jamLevel(pct: number): WarningLevel {
@@ -86,12 +102,10 @@ export function effectiveLoomWeftDensity(spec: FabricSpec): number {
 }
 
 export function computeMetrics(spec: FabricSpec, opts: MetricsOptions = {}): FabricMetrics {
-  const { warp: Dw, weft: Df } = finishedDensities(
-    effectiveLoomWarpDensity(spec),
-    effectiveLoomWeftDensity(spec),
-    spec.warpShrinkPct,
-    spec.weftShrinkPct,
-  );
+  const pos = opts.positions ?? buildFabricPositions(spec);
+  const applied = appliedShrinkPct(spec, pos);
+  const { warp: Dw, weft: Df } = finishedDensities(effectiveLoomWarpDensity(spec, pos), effectiveLoomWeftDensity(spec), applied.warp, applied.weft);
+  const openPct = packedOpenPctOfSpec(spec, 'finished', pos, opts.packing);
   const beta = opts.warpCrimpShareOverride ?? spec.warpCrimpShare ?? 0.4;
   const wt = slotTable(spec.warpSlots, opts.defaultYarnDensity);
   const ft = slotTable(spec.weftSlots, opts.defaultYarnDensity);
@@ -118,6 +132,10 @@ export function computeMetrics(spec: FabricSpec, opts: MetricsOptions = {}): Fab
     Dw,
     Df,
     cover: 100 * (1 - (1 - cw) * (1 - cf)),
+    openPct,
+    coverPacked: 100 - openPct,
+    openTheoretical: 100 * (1 - cw) * (1 - cf),
+    appliedShrinkPct: applied,
     coverWarp: 100 * cw,
     coverWeft: 100 * cf,
     crimpWarp: 100 * crimpW,
@@ -237,12 +255,12 @@ export function structureMetrics(spec: FabricSpec, positions?: FabricPositions):
   const warnings = [...pos.warnings];
   if (!pos.warp.feasible) {
     warnings.push(
-      `Atkı çekmesi %${spec.weftShrinkPct} (en, çözgü aralıkları) bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %${pos.warp.maxShrinkPct.toFixed(1)}.`,
+      `Atkı çekmesi %${spec.weftShrinkPct} (en, çözgü aralıkları) bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %${pos.warp.maxShrinkPct.toFixed(1)} — uygulanan: %${pos.warp.maxShrinkPct.toFixed(1)}.`,
     );
   }
   if (!pos.weft.feasible) {
     warnings.push(
-      `Çözgü çekmesi %${spec.warpShrinkPct} (boy, atkı aralıkları) bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %${pos.weft.maxShrinkPct.toFixed(1)}.`,
+      `Çözgü çekmesi %${spec.warpShrinkPct} (boy, atkı aralıkları) bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %${pos.weft.maxShrinkPct.toFixed(1)} — uygulanan: %${pos.weft.maxShrinkPct.toFixed(1)}.`,
     );
   }
   const share = spec.warpCrimpShare ?? 0.4;

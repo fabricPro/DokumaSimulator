@@ -79,7 +79,8 @@ describe('bakış modu = kumaş uzayında algısal filtre', () => {
     expect(materialTuning('loupe', { relief: 1 })).toEqual({ relief: 1 });
     expect(materialTuning('eye', {}).relief).toBe(0.5);
     expect(materialTuning('far', { relief: 0.9 }).relief).toBe(0.9);
-    expect(materialTuning('eye', undefined).spread).toBeGreaterThan(1);
+    // paketleme turu: uzakta ek yayılma yok (geometri lupla aynı paketlemeden)
+    expect((materialTuning('eye', undefined) as { spread?: number }).spread).toBeUndefined();
   });
   it('otomatik LOD: ayak izi büyükse ayak izine eşit minimum filtre (Lup 15 px/mm → 0.067 mm)', () => {
     expect(footprintMm(15)).toBeCloseTo(1 / 15, 9);

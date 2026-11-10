@@ -119,11 +119,17 @@ describe('tezgah konumları', () => {
     const across = withEmpty.centers(2, 2); // 0. dişin son teli → 2. dişin ilk teli (1. diş boş)
     expect(across[1] - across[0]).toBeCloseTo(normal[1] - normal[0] + 0.5, 12);
   });
-  it('çap toplamı açıklığı aşarsa teller değerek ortalanır', () => {
+  it('çap toplamı açıklığı aşarsa teller diş açıklığına sıkışır (ortalanmış)', () => {
     const g = new ReedPositionGenerator(reed20([4]), () => 0.12, 1); // 0.48 > 0.35
     const c = g.centers(0, 4);
-    expect(c[1] - c[0]).toBeCloseTo(0.12, 12);
+    // Paketleme turu (B2): teller diş açıklığına sıkışır — aralık açıklık / n, merkezler açıklığın içinde
+    expect(c[1] - c[0]).toBeCloseTo(0.35 / 4, 12);
     expect((c[0] + c[3]) / 2).toBeCloseTo(g.dentAt(0).center, 12);
+    const dent = g.dentAt(0);
+    for (const x of c) {
+      expect(x).toBeGreaterThan(dent.openLeft);
+      expect(x).toBeLessThan(dent.openRight);
+    }
   });
   it('startOffset raporu kaydırır', () => {
     const g = new ReedPositionGenerator(reed20([3, 0], { startOffset: 1 }), () => 0.05, 1);
@@ -184,8 +190,12 @@ describe('tarak + çekme', () => {
     }
   });
   it("panama + 2'li düz: ikili gruplaşma (çift içi < çiftler arası) ve çekmeyle artar", () => {
-    const g0 = at(hopsack(), [2], 0).warp.gaps;
-    const g15 = at(hopsack(), [2], 15).warp.gaps;
+    // 300 denier ×2 bu dişe sığmaz (Σ çap 0.45 > açıklık 0.35 → paketleme turundan beri diş içine sıkışır, çift içi
+    // aralık en küçük aralıkta kilitli); gruplaşma eğilimi dişe sığan 150 denier ile sınanır
+    const thin: Partial<FabricSpec> = { warpSlots: [{ ...spec(hopsack(), {}).warpSlots[0], count: 150 }] };
+    const at2 = (s: number) => buildFabricPositions(spec(hopsack(), { reed: reed20([2]), warpShrinkPct: s, weftShrinkPct: s, ...thin }));
+    const g0 = at2(0).warp.gaps;
+    const g15 = at2(15).warp.gaps;
     expect(g15[0]).toBeLessThan(g15[1]);
     expect(g15[0] / g15[1]).toBeLessThan(g0[0] / g0[1]);
   });

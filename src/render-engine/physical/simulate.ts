@@ -12,7 +12,7 @@ import { pmod } from '../heightfield/wave';
 import type { FabricSpec, RgbaImage } from '../types';
 import type { PositionGenerator } from './positions';
 import { finishedDensities } from './shrinkage';
-import { buildFabricPositions, type FabricPositions } from './shrinkDistribution';
+import { appliedShrinkPct, buildFabricPositions, type FabricPositions } from './shrinkDistribution';
 import { MIN_SQUEEZE } from './squeeze';
 import { createPhysicalRandom, type PhysicalRandomSource } from './random';
 import { slotIndices, slotTable } from './yarns';
@@ -37,6 +37,14 @@ export interface SimulateOptions {
    *  collect: ham yükseklik (mm) ve üstteki iplik kimliği döndürülür.
    */
   debug?: { geometryOnly?: boolean; collect?: boolean };
+  /**
+   * Piksel başına alan ortalaması (paketleme turu, C1): iç ızgara S×S kat sık örneklenir (alt örnekler piksel
+   * merkezli), sonuç doğrusal (sRGB çözülmüş) uzayda kutu filtreyle küçültülür → iplik aralığı piksel ızgarasıyla
+   * tam sayı oranında değilken moiré olmaz. 'auto' (varsayılan): en dar iplik aralığı alt örnekte ≥ SS_TARGET_PX
+   * piksel olacak S (≤ SS_MAX; toplam alt örnek SS_BUDGET ile sınırlı). Sık ölçekte S = 1 ve çıktı eskisiyle aynı.
+   * debug verildiğinde her zaman 1.
+   */
+  supersample?: number | 'auto';
   /** Hazır hesaplanmış konumlar (verilmezse spec'ten tarak + yay modeliyle üretilir). */
   positions?: FabricPositions;
   /** Konum üreticilerini doğrudan ezmek için (test/deney). */
@@ -123,19 +131,94 @@ function gradientAt(a: Float32Array, w: number, h: number, x: number, y: number)
   return [gx, gy];
 }
 
+/** VARSAYIM: alt örnekte iplik aralığı ≥ 6 px, S ≤ 8, toplam alt örnek ≤ 8 M. */
+export const SS_TARGET_PX = 6;
+export const SS_MAX = 8;
+export const SS_BUDGET = 8_000_000;
+
+/** Otomatik alt örnekleme katsayısı (en dar ortalama iplik aralığına göre). */
+export function autoSupersample(spec: FabricSpec, view: PhysicalView, fabric?: FabricPositions | null): number {
+  const W = Math.max(1, Math.trunc(view.widthMm * view.pxPerMm));
+  const H = Math.max(1, Math.trunc(view.heightMm * view.pxPerMm));
+  const pw = fabric ? fabric.warp.finished.meanPitchMm() : 10 / spec.warpDensityLoom;
+  const pf = fabric ? fabric.weft.finished.meanPitchMm() : 10 / spec.weftDensityLoom;
+  const pitchPx = Math.min(pw, pf) * view.pxPerMm;
+  let S = Math.max(1, Math.min(SS_MAX, Math.ceil(SS_TARGET_PX / Math.max(1e-6, pitchPx))));
+  while (S > 1 && W * H * S * S > SS_BUDGET) S--;
+  return S;
+}
+
+const srgbToLin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const linToSrgb = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+
 export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: SimulateOptions = {}): SimulateResult {
+  const fabric = opts.warpPositions && opts.weftPositions ? null : (opts.positions ?? buildFabricPositions(spec));
+  const S = opts.debug
+    ? 1
+    : opts.supersample === undefined || opts.supersample === 'auto'
+      ? autoSupersample(spec, view, fabric)
+      : Math.max(1, Math.min(SS_MAX, Math.round(opts.supersample)));
+  if (S === 1) return simulateOnce(spec, view, opts, fabric);
+  const W = Math.max(1, Math.trunc(view.widthMm * view.pxPerMm));
+  const H = Math.max(1, Math.trunc(view.heightMm * view.pxPerMm));
+  const ppmS = view.pxPerMm * S;
+  // İç ızgara tam W·S × H·S; alt örnekler piksel merkezli (yarım alt piksel öteleme)
+  const half = 0.5 / ppmS;
+  const inner = simulateOnce(
+    spec,
+    { x0Mm: view.x0Mm + half, y0Mm: view.y0Mm + half, widthMm: (W * S + 0.5) / ppmS, heightMm: (H * S + 0.5) / ppmS, pxPerMm: ppmS },
+    { ...opts, scaleBar: false },
+    fabric,
+  );
+  const src = inner.image.data;
+  const iw = inner.image.width;
+  const out = new Uint8ClampedArray(W * H * 4);
+  const lut = new Float64Array(256);
+  for (let k = 0; k < 256; k++) lut[k] = srgbToLin(k / 255);
+  const n = S * S;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      for (let sy = 0; sy < S; sy++) {
+        let o = ((y * S + sy) * iw + x * S) * 4;
+        for (let sx = 0; sx < S; sx++, o += 4) {
+          r += lut[src[o]];
+          g += lut[src[o + 1]];
+          b += lut[src[o + 2]];
+        }
+      }
+      const j = (y * W + x) * 4;
+      out[j] = Math.round(linToSrgb(r / n) * 255);
+      out[j + 1] = Math.round(linToSrgb(g / n) * 255);
+      out[j + 2] = Math.round(linToSrgb(b / n) * 255);
+      out[j + 3] = 255;
+    }
+  }
+  if (opts.scaleBar !== false) drawScaleBar(out, W, H, view.pxPerMm);
+  return { ...inner, image: { width: W, height: H, data: out } };
+}
+
+function simulateOnce(
+  spec: FabricSpec,
+  view: PhysicalView,
+  opts: SimulateOptions,
+  fabric: FabricPositions | null,
+): SimulateResult {
   const M = spec.weave;
   const Rr = M.length;
   const Rc = M[0].length;
   const ppm = view.pxPerMm;
   const rnd = opts.random ?? createPhysicalRandom(opts.seed ?? 3);
 
-  const fabric = opts.warpPositions && opts.weftPositions ? null : (opts.positions ?? buildFabricPositions(spec));
+  // Uygulanan çekme fiziksel sınırla kırpılır (konumlar zaten kırpılmış; sıklık da aynı değerle)
+  const applied = fabric ? appliedShrinkPct(spec, fabric) : { warp: spec.warpShrinkPct, weft: spec.weftShrinkPct };
   const { warp: Dw, weft: Df } = finishedDensities(
     fabric?.reedDensity ?? spec.warpDensityLoom,
     fabric?.weftLoomDensity ?? spec.weftDensityLoom,
-    spec.warpShrinkPct,
-    spec.weftShrinkPct,
+    applied.warp,
+    applied.weft,
   );
   const wPos = opts.warpPositions ?? fabric!.warp.finished;
   const fPos = opts.weftPositions ?? fabric!.weft.finished;

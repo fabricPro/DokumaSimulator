@@ -1,3 +1,4 @@
+import type { PackingOverrides } from './packing';
 /**
  * Gerçekçi render modülü — genel tipler.
  * Bu modül React'e, uygulama state'ine veya store'a bağlı değildir; yalnız bir canvas ve
@@ -48,12 +49,18 @@ export interface WeaveMatrix {
   data: Uint8Array;
 }
 
-/** Periyodik iplik merkez tablosu (tarak / çekme sonrası konumlar için; Faz 1'de kullanılmaz). */
+/**
+ * Periyodik iplik merkez tablosu (tarak / çekme sonrası konumlar; adapters/positionsFromSpec). Verilirse eşit aralık
+ * yerine kullanılır: sıklık = merkez sayısı / periyot. Döşeme bu periyodun katıdır (tile.ts).
+ */
 export interface PeriodicCenters {
   /** Bir periyottaki iplik merkezleri (mm, artan). */
   centersMm: Float32Array;
   /** Periyot uzunluğu (mm). */
   periodMm: number;
+  /** Paketleme hücresi sınırı: merkezden sol / sağ en fazla yayılma (mm; boş diş kenarı). Infinity = sınırsız. */
+  limitLMm?: Float32Array;
+  limitRMm?: Float32Array;
 }
 
 /** Düzensizlik ayarları (Faz 4). */
@@ -129,8 +136,10 @@ export interface Tuning {
   forceReal?: boolean;
   /** Yumuşak iplik kenarı (kesit yarı genişliği oranı): kenarda lif dolgusu; 0 = yalnız piksel yumuşatması. Göz / Uzak varsayılanı 0.12. */
   softEdge?: number;
-  /** İplik yayılması çarpanı (Durak 2-E; 0 = sert yuvarlak kesit, 1 = varsayılan tip modeli). */
+  /** İplik yayılması çarpanı (0 = sert yuvarlak kesit, 1 = paketleme modeli; packing.ts). */
   spread?: number;
+  /** Paketleme parametreleri (tip başına en/boy ve doldurma oranı, sıkışma; packing.ts DEFAULT_PACKING üzerine). */
+  packing?: PackingOverrides;
   /** Ton eşleme beyaz noktası (pozlama sonrası doğrusal; küçük = daha erken sıkıştırır). Varsayılan 2. */
   whitePoint?: number;
 }

@@ -4,6 +4,8 @@ import { WeftReportField } from './WeftReportField';
 import { bukumTurM, sonucNumara, type IplikTanimi, type IplikTip, type Parlaklik } from '../adapters/iplik';
 import {
   DEFAULT_RELAX,
+  appliedShrinkPct,
+  buildFabricPositions,
   MAX_SLOTS,
   SLOT_NAMES,
   diameterMm,
@@ -387,8 +389,11 @@ export function YarnPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: 
 
 export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: FabricSpec) => void }) {
   const set = <K extends keyof FabricSpec>(k: K, v: FabricSpec[K]) => onChange({ ...spec, [k]: v });
-  const loomWarp = effectiveLoomWarpDensity(spec);
-  const fin = finishedDensities(loomWarp, effectiveLoomWeftDensity(spec), spec.warpShrinkPct, spec.weftShrinkPct);
+  const positions = buildFabricPositions(spec);
+  const loomWarp = effectiveLoomWarpDensity(spec, positions);
+  // Uygulanan çekme: fiziksel sınırı aşan giriş sınırda kalır (metrik ve render ile aynı)
+  const applied = appliedShrinkPct(spec, positions);
+  const fin = finishedDensities(loomWarp, effectiveLoomWeftDensity(spec), applied.warp, applied.weft);
   const relax = { ...DEFAULT_RELAX, ...(spec.relax ?? {}) };
   const [adv, setAdv] = useState(false);
   return (
@@ -396,7 +401,10 @@ export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s
       <h3>Kumaş</h3>
       <div className="grid2">
         {spec.reed ? (
-          <label className="numfield" title="Tarak girildiği için sıklık taraktan türetiliyor">
+          <label
+            className="numfield"
+            title={`Tarak açıkken sıklık taraktan türetilir (düzenlenemez). Tarak kapanınca elle girilen ${spec.warpDensityLoom} tel/cm geri gelir.`}
+          >
             <span>Tezgah çözgü sıklığı (taraktan)</span>
             <span className="numfield-input">
               <input type="number" value={+loomWarp.toFixed(2)} disabled />
@@ -415,6 +423,12 @@ export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s
       <Slider label="Kıvrım payı (çözgü)" value={spec.warpCrimpShare} min={0} max={1} step={0.01} onChange={(v) => set('warpCrimpShare', v)} format={(v) => v.toFixed(2)} />
       <p className="hint">
         Mamul: çözgü {fin.warp.toFixed(1)} tel/cm · atkı {fin.weft.toFixed(1)} atkı/cm
+        {(applied.warp < spec.warpShrinkPct || applied.weft < spec.weftShrinkPct) && (
+          <>
+            {' '}
+            · uygulanan çekme: boy %{applied.warp.toFixed(1)}, en %{applied.weft.toFixed(1)}
+          </>
+        )}
       </p>
       <button className="link" onClick={() => setAdv(!adv)}>
         {adv ? '▴' : '▾'} Çekme modeli (gelişmiş)

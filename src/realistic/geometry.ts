@@ -26,6 +26,18 @@ import type { FabricInput } from './types';
 import { DEFAULT_YARN_DENSITY, diameterMm, toTex } from './yarn';
 import { pitchMm, pmod } from './scale';
 import { positionOffset, resolveIrregularity, thicknessScale } from './irregularity';
+import { axisLayout, type InputAxisLayout } from './layout';
+import type { PackingOverrides } from './packing';
+import { tileFor } from './tile';
+
+/**
+ * v2 aday yarı penceresi: en geniş yarı kesit (+ iplik boyunca kalınlık %7, düzensizlik) en küçük merkez aralığının
+ * kaç katı. 1 → krepaj aralığının iki ucu; s → k+1−s .. k+s. Üst sınır 8 (shader döngüsü).
+ */
+export function layoutSpan(l: InputAxisLayout, thickness = 0, position = 0): number {
+  const reach = l.maxHalfWidth * (1 + thickness) * 1.07 * 1.15 + 2 * position * l.pitch;
+  return Math.max(1, Math.min(8, 1 + Math.floor(reach / l.minGap)));
+}
 
 /** VARSAYIM (kalibre edilecek): basıklık k = 1 + 1.2·max(0, d/p − 0.6), [1, 2.2] aralığında.
  *  d/p: iplik çapı / iplik aralığı (doluluk). Doluluk 0.6'yı aşınca iplik yanlara yayılır.
@@ -203,6 +215,8 @@ export interface GeometryParams {
   weftFlat?: (j: number) => number;
   /** v2: örgü rapor boyu (uzun atlama araması için). */
   weaveSize?: [number, number];
+  /** v2 aday yarı penceresi (çözgü, atkı): krepaj aralığı (k, k+1) çevresinde k+1−s .. k+s. Shader uSpan ile aynı. */
+  span?: [number, number];
 }
 
 /** Kesit yarı yüksekliği b = r/√k. */
@@ -318,8 +332,9 @@ function nearest(x: number, pitch: number, center: (k: number) => number): numbe
 /** c(k0) ≤ x < c(k0+1) aralığı ve smoothstep kesri. */
 function interval(x: number, pitch: number, center: (k: number) => number): { k0: number; s: number } {
   let k0 = Math.floor(x / pitch - 0.5);
-  if (x < center(k0)) k0 -= 1;
-  else if (x >= center(k0 + 1)) k0 += 1;
+  // Tarak / çekme konumlarında merkez eşit aralıktan birkaç aralık sapabilir (shader ile aynı sınırlı arama)
+  for (let n = 0; n < 16 && x < center(k0); n++) k0 -= 1;
+  for (let n = 0; n < 16 && x >= center(k0 + 1); n++) k0 += 1;
   const c0 = center(k0);
   const c1 = center(k0 + 1);
   return { k0, s: Math.min(1, Math.max(0, (x - c0) / (c1 - c0))) };
@@ -339,8 +354,9 @@ function geometryAtV2(X: number, Y: number, g: GeometryParams): GeometrySample {
   // Çözgü adayları: kesit x, yol y boyunca kesişim z'lerinden
   const iv = interval(Y, pf, g.weftCenter);
   const spanW = g.weftCenter(iv.k0 + 1) - g.weftCenter(iv.k0);
-  const i0 = Math.floor(X / pw);
-  for (const i of [i0 - 1, i0, i0 + 1]) {
+  const ihW = interval(X, pw, g.warpCenter).k0;
+  const [sw, sf] = g.span ?? [1, 1];
+  for (let i = ihW + 1 - sw; i <= ihW + sw; i++) {
     const { a, b } = ellipseAxes(g.warpRadius(i), g.warpFlat?.(i) ?? 1);
     const dx = X - g.warpCenter(i);
     if (!(Math.abs(dx) < a)) continue;
@@ -355,9 +371,8 @@ function geometryAtV2(X: number, Y: number, g: GeometryParams): GeometrySample {
   // Atkı adayları; eşitlikte çözgü üstte
   const ih = interval(X, pw, g.warpCenter);
   const spanF = g.warpCenter(ih.k0 + 1) - g.warpCenter(ih.k0);
-  const j0 = Math.floor(Y / pf);
   const bestWarpH = best.axis === 1 ? best.h : -1e3;
-  for (const j of [j0 - 1, j0, j0 + 1]) {
+  for (let j = iv.k0 + 1 - sf; j <= iv.k0 + sf; j++) {
     const { a, b } = ellipseAxes(g.weftRadius(j), g.weftFlat?.(j) ?? 1);
     const dy = Y - g.weftCenter(j);
     if (!(Math.abs(dy) < a)) continue;
@@ -451,6 +466,7 @@ export function geometryParamsFromInput(
   irregularityMul = 1,
   model: GeometryModel = 'classic',
   spreadMul = 1,
+  packing?: PackingOverrides,
 ): GeometryParams {
   const radiusOfType = input.yarnTypes.map((y) => diameterMm(toTex(y.count, y.unit), y.yarnDensity ?? DEFAULT_YARN_DENSITY) / 2);
   const warpR = input.warp.map((t) => radiusOfType[t.yarnType]);
@@ -473,18 +489,20 @@ export function geometryParamsFromInput(
     bgHeight: -(Math.max(...warpR) + Math.max(...weftR)) * (1 + ir.thickness) * 1.4,
   };
   if (model !== 'v2') return base;
-  // Kesit basıklığı iplik tipine ve kendi sisteminin aralığına bağlı (shader: yarnFlat)
-  const [fillW, fillF] = systemFill(input);
-  const kOf = (t: number, p: number, crossFill: number) =>
-    crossSectionAspect(2 * radiusOfType[t], p, flattenFactor, input.yarnTypes[t].structure, input.yarnTypes[t].plies ?? 2, spreadMul, crossFill);
-  const kW = input.warp.map((t) => kOf(t.yarnType, pw, fillF));
-  const kF = input.weft.map((t) => kOf(t.yarnType, pf, fillW));
+  // Paketleme (packing.ts / layout.ts): döşeme periyodunda merkez kayması (tarak / çekme) ve kesit en/boyu —
+  // GPU iplik tablosuyla (pack.ts threadTable) aynı
+  const tile = tileFor(input);
+  const [lw, lf] = [0, 1].map((ax) => axisLayout(input, ax as 0 | 1, tile.threads[ax], packing, spreadMul));
+  const [Pw, Pf] = tile.threads;
   const beta = input.crimpShare ?? V2_CRIMP_SHARE;
   return {
     ...base,
+    warpCenter: (i) => (i + 0.5) * pw + lw.offset[pmod(i, Pw)] + positionOffset(0, pmod(i, Pw), pw, ir),
+    weftCenter: (j) => (j + 0.5) * pf + lf.offset[pmod(j, Pf)] + positionOffset(1, pmod(j, Pf), pf, ir),
     crimpShare: beta,
-    warpFlat: (i) => kW[pmod(i, kW.length)],
-    weftFlat: (j) => kF[pmod(j, kF.length)],
+    warpFlat: (i) => lw.aspect[pmod(i, Pw)],
+    weftFlat: (j) => lf.aspect[pmod(j, Pf)],
+    span: [layoutSpan(lw, ir.thickness, ir.position), layoutSpan(lf, ir.thickness, ir.position)],
     weaveSize: [warps, wefts],
     bgHeight: v2BgHeight(Math.max(...warpR, ...weftR) * (1 + ir.thickness), beta),
   };

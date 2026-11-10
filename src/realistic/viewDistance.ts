@@ -168,10 +168,11 @@ export function lruEvictions<T>(entries: Array<{ id: T; bytes: number }>, keep: 
  * Göz / Uzak "malzeme" karakteri (net çizimde ve filtreli pişirmede aynı, geçiş tutarlı olsun): gözle bakılan kumaş
  * kapalı yüzeyli, iplik içi detay orta düzeyde, siyah boşluk yok. Kullanıcının verdiği Tuning değerleri ezer.
  * VARSAYIM (gözle seçildi): rölyef 0.5 (büküm / lif kabartması yarıya), melanj 0.7, tüylülük 0.5,
- * yayılma ×2.2 (iplik araları kapanır: viewDistance → geometry.spreadFactor), yumuşak kenar 0.12·a
- * (iplik kenarında lif dolgusu: kapsama geçişi kesit yarı genişliğinin %12'si).
+ * yumuşak kenar 0.12·a (iplik kenarında lif dolgusu: kapsama geçişi kesit yarı genişliğinin %12'si).
+ * Paketleme turu: eski "yayılma ×2.2" kaldırıldı — geometri lupla aynı paketlemeden (packing.ts) gelir; kumaş
+ * paketleme kadar kapanır, boş diş şeritleri ve gerçekten seyrek doku açık kalır.
  */
-export const MATERIAL_DEFAULTS = { relief: 0.5, melange: 0.7, hairiness: 0.5, spread: 2.2, softEdge: 0.12 } as const;
+export const MATERIAL_DEFAULTS = { relief: 0.5, melange: 0.7, hairiness: 0.5, softEdge: 0.12 } as const;
 export function materialTuning<T extends object>(distance: ViewDistance, tuning?: T): T & typeof MATERIAL_DEFAULTS {
   return (distance === 'loupe' ? { ...(tuning ?? {}) } : { ...MATERIAL_DEFAULTS, ...(tuning ?? {}) }) as T & typeof MATERIAL_DEFAULTS;
 }

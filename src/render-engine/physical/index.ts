@@ -6,7 +6,7 @@ export type { FinishedDensities } from './shrinkage';
 export { alongYarnInterlacing, lateralInterlacing, ashenhurstMax, MIN_SQUEEZE } from './squeeze';
 export type { InterlacingStats } from './squeeze';
 export { warpGapBinding, weftGapBinding, crossWeightedGap, transposeWeave } from './interlacing';
-export { distributeShrink, distributeAxis, buildFabricPositions, mapLoomToFinished, DEFAULT_RELAX } from './shrinkDistribution';
+export { distributeShrink, distributeAxis, buildFabricPositions, mapLoomToFinished, appliedShrinkPct, DEFAULT_RELAX } from './shrinkDistribution';
 export type { SpringInput, SpringResult, AxisPositions, FabricPositions, AxisInput } from './shrinkDistribution';
 export { computeMetrics, jamLevel, structureMetrics, effectiveLoomWarpDensity, effectiveLoomWeftDensity } from './metrics';
 export type { FabricMetrics, MetricsOptions, WarningLevel, StructureMetrics, AxisStructure } from './metrics';

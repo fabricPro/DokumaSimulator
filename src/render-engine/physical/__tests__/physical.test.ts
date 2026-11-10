@@ -7,6 +7,7 @@ import { computeMetrics, jamLevel, structureMetrics } from '../metrics';
 import { racetrack, racetrackHalfHeight } from '../simulate';
 import { simulatePhysical } from '../simulate';
 import { constantPhysicalRandom } from '../random';
+import { appliedShrinkPct } from '../shrinkDistribution';
 import { plain, satin5, twill22, twill31 } from '../../../presets/weaves';
 import { physicalExample } from '../../../presets/physicalExample';
 import type { FabricSpec } from '../../types';
@@ -188,7 +189,10 @@ describe('simulate', () => {
     const a = simulatePhysical(physicalExample(0, 0), view, { random: constantPhysicalRandom(), scaleBar: false });
     const b = simulatePhysical(physicalExample(12, 20), view, { random: constantPhysicalRandom(), scaleBar: false });
     expect(b.openPct).toBeLessThan(a.openPct);
-    expect(b.Dw).toBeCloseTo(27.5, 6);
+    // Atkı çekmesi %20 bu örnekte ulaşılamaz: sıklık uygulanan (kırpılmış) çekmeyle (22 / (1 − a))
+    const ap = appliedShrinkPct(physicalExample(12, 20));
+    expect(ap.weft).toBeLessThan(20);
+    expect(b.Dw).toBeCloseTo(22 / (1 - ap.weft / 100), 6);
   });
   it('0. atkı en altta (alttan yukarı)', () => {
     const spec: FabricSpec = {

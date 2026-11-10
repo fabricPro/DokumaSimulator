@@ -297,6 +297,19 @@ export function buildFabricPositions(spec: FabricSpec): FabricPositions {
 }
 
 /**
+ * Uygulanan çekme (%): girilen değer fiziksel olarak ulaşılamıyorsa ulaşılabilen en büyük değer. Konumlar zaten
+ * kırpılır (distributeShrink); mamul sıklık, metrik ve gerçekçi mod da bu değeri kullanır (kırmızı uyarı kalır).
+ * warp = çözgü çekmesi (boy; atkı aralıkları), weft = atkı çekmesi (en; çözgü aralıkları).
+ */
+export function appliedShrinkPct(spec: FabricSpec, positions?: FabricPositions): { warp: number; weft: number } {
+  const pos = positions ?? buildFabricPositions(spec);
+  return {
+    warp: pos.weft.feasible ? spec.warpShrinkPct : Math.min(spec.warpShrinkPct, pos.weft.maxShrinkPct),
+    weft: pos.warp.feasible ? spec.weftShrinkPct : Math.min(spec.weftShrinkPct, pos.warp.maxShrinkPct),
+  };
+}
+
+/**
  * Tezgah koordinatındaki x'i (mm) aynı ipliklerin mamuldeki konumuna eşler: x'i çevreleyen iki
  * tezgah iplik merkezi arasında doğrusal enterpolasyon ("Aynı iplikler" karşılaştırması için).
  */

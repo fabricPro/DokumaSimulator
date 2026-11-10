@@ -4,6 +4,7 @@
  * düzensizlik) taşır. JSON olarak indirilir / yüklenir.
  */
 import type { CountUnit, FabricInput, Luster, Quality, Tuning, ViewParams } from './types';
+import { DEFAULT_PACKING, PACK_KINDS, type PackingParams } from './packing';
 
 export interface YarnSurface {
   luster: Luster;
@@ -22,6 +23,8 @@ export interface RealisticPreset {
   quality?: Quality;
   /** Kalibrasyonda kullanılan fotoğraf ölçeği (bilgi amaçlı). */
   photoPxPerCm?: number;
+  /** Paketleme parametreleri (tip başına en/boy + doldurma oranı, sıkışma; packing.ts). Yoksa varsayılan. */
+  packing?: PackingParams;
   note?: string;
 }
 
@@ -83,8 +86,24 @@ export function parsePreset(text: string): RealisticPreset {
     preset.quality = raw.quality;
   }
   if (raw.photoPxPerCm !== undefined) preset.photoPxPerCm = num(raw.photoPxPerCm, 'photoPxPerCm', 1, 1e6);
+  if (raw.packing !== undefined) preset.packing = parsePacking(raw.packing);
   if (typeof raw.note === 'string') preset.note = raw.note;
   return preset;
+}
+
+/** Paketleme bölümü: eksik tipler varsayılanla tamamlanır. */
+export function parsePacking(raw: any): PackingParams {
+  if (!raw || typeof raw !== 'object') throw new Error('packing bir nesne olmalı.');
+  const kinds = {} as PackingParams['kinds'];
+  for (const k of PACK_KINDS) {
+    const r = raw.kinds?.[k] ?? {};
+    const d = DEFAULT_PACKING.kinds[k];
+    kinds[k] = {
+      maxAspect: num(r.maxAspect ?? d.maxAspect, `packing.kinds.${k}.maxAspect`, 1, 8),
+      fill: num(r.fill ?? d.fill, `packing.kinds.${k}.fill`, 0.2, 1),
+    };
+  }
+  return { kinds, compression: num(raw.compression ?? DEFAULT_PACKING.compression, 'packing.compression', 0.3, 1) };
 }
 
 export function serializePreset(p: RealisticPreset): string {

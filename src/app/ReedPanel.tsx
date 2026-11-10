@@ -144,7 +144,8 @@ export function ReedPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: 
 
   let derived: ReturnType<typeof deriveReed> | null = null;
   try {
-    derived = reed ? deriveReed(reed, spec.warpDensityLoom) : null;
+    // Tarak açıkken sıklık taraktan gelir; elle girilen değer saklanır (karşılaştırma uyarısı yok)
+    derived = reed ? deriveReed(reed) : null;
   } catch {
     derived = null;
   }

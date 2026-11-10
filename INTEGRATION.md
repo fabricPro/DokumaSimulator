@@ -250,6 +250,17 @@ const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // ekranda
   37–213 mm (rapordan bağımsız); iplik ton farkı ΔE (`irregularity.colorDeltaE`) 4096 iplik periyotlu tablodan.
   Seed'e bağlı, deterministik.
 
+## 6c. Paketleme ve iplik konumları
+
+- **Konumlar:** `FabricInput.positions` (`PeriodicCenters`), tarak ve çekme yay modeli sonrası iplik merkezlerini
+  bir periyot için taşır. Dokuma Simülatörü'nde `adapters/positionsFromSpec.ts`, klasik render ile aynı tabloyu
+  üretir. Sıklık = merkez sayısı / periyot, döşeme bu periyodun katıdır. Tezgah tarafı tarak verisi varsa aynı
+  biçimde doldurmalıdır; verilmezse eşit aralık kullanılır.
+- **Boş diş:** `limitLMm` / `limitRMm`, boş dişe komşu ipliğin o yöne en fazla ne kadar yayılabileceğidir (mm).
+- **Paketleme (`packing.ts`):** her kesit, komşusuna ya da hücre sınırına kadar yassılaşıp genişler; hacim
+  korunur. Parametreler `Tuning.packing` (tip başına `maxAspect`, `fill`; global `compression`) ile verilir;
+  kalibrasyon preset'inde `packing` alanı olarak saklanır. Metriklerdeki açıklık / örtme aynı modelden gelir.
+
 ## 7. Yalnız yakın görünüm / büyüteç
 
 Lup modunda gerçekçi görünüm uzak ölçekte bilgi katmaz ve GPU'yu boşa harcar. Önerilen kullanım (Dokuma

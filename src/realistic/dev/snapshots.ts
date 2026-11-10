@@ -22,6 +22,7 @@ import { cssPxPerMm, filterFwhmMm, filterSigmaMm, meanYarnDiameterMm, realWeight
 import { physicalExample } from '../../presets/physicalExample';
 import { diameterMm as yarnDiameterMm, toTex as yarnToTex } from '../yarn';
 import { pitchMm } from '../scale';
+import { packingSnapshots } from './packingSnapshots';
 
 declare global {
   interface Window {
@@ -1605,6 +1606,15 @@ async function scaleSwitchSnapshots(say: (t: string) => void) {
 
 async function run() {
   const tagParam = new URLSearchParams(location.search).get('phase') ?? '1';
+  if (tagParam === 'packing') {
+    SAVE_TAG = 'packing';
+    const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');
+    const stage = new URLSearchParams(location.search).get('stage') ?? 'sonra';
+    window.__snapshotsReport = await packingSnapshots(stage, say);
+    window.__snapshotsDone = true;
+    say('Bitti.');
+    return;
+  }
   if (tagParam === 'scale-switch') {
     SAVE_TAG = 'scale-switch';
     const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');

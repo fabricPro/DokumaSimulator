@@ -6,7 +6,9 @@
  *    kaplar; açıklık ortadadır.
  *  - Çözgüler tahar sırasıyla dolu dişlere dağılır (varsayılan: çözgü indeksi sırası).
  *  - Dişteki n telin çap toplamı açıklıktan küçükse teller n+1 eşit boşlukla yayılır (diş merkezine göre
- *    simetrik); büyükse birbirine değerek ortalanır ve açıklıktan taşar (sıkışma/racetrack katmanı devreye girer).
+ *    simetrik); büyükse teller diş açıklığına SIKIŞTIRILIR: merkezler çap oranında açıklık içine dizilir (Σ çap >
+ *    açıklık → komşular üst üste biner; teller diş telinin dışına taşamaz). Kesitin sıkışıp yassılaşması ve hafif
+ *    bindirme paketleme modelinde (realistic/packing.ts) ve klasik render'ın racetrack katmanında çizilir.
  *  - Σ çap > açıklık / 0.6 ise "bu dişe bu kadar tel sığmıyor" uyarısı.
  *  - Boş diş konumu boş bırakır: komşu teller arasında bir adım kadar fazladan boşluk oluşur.
  */
@@ -86,15 +88,18 @@ export class ReedPositionGenerator extends PeriodicPositionGenerator {
       if (sumD > open / FIT_LIMIT) overfull.push({ dent: j, ends: n, sumDiameterMm: sumD, openingMm: open });
       let x: number;
       let gap: number;
+      // Sığmayan dişte çaplar açıklığa ölçeklenir (sc < 1): merkezler diş açıklığı içinde
+      let sc = 1;
       if (sumD <= open) {
         gap = (open - sumD) / (n + 1);
         x = center - open / 2 + gap;
       } else {
         gap = 0;
-        x = center - sumD / 2;
+        sc = open / sumD;
+        x = center - open / 2;
       }
       for (const g of warps) {
-        const dg = diameterOf(g);
+        const dg = diameterOf(g) * sc;
         const local = ((g % P) + P) % P;
         offsets[local] = x + dg / 2;
         dentOfLocal[local] = j;

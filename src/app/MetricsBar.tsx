@@ -9,11 +9,12 @@ const mm = (v: number) => (v < 0.995 ? v.toFixed(2) : v.toFixed(1));
 export function MetricsBar({
   metrics,
   structure,
-  openPct,
+  renderOpenPct,
 }: {
   metrics: FabricMetrics;
   structure: StructureMetrics;
-  openPct: number | null;
+  /** Klasik render'ın görünen zemin oranı (yalnız bilgi; metrik değil). */
+  renderOpenPct?: number | null;
 }) {
   const m = metrics;
   const s = structure;
@@ -27,9 +28,15 @@ export function MetricsBar({
           {m.Dw.toFixed(1)} <small>tel/cm</small> · {m.Df.toFixed(1)} <small>atkı/cm</small>
         </b>
       </div>
-      <div className="metric">
+      <div
+        className="metric"
+        title={`Paketleme modeli (iplikler komşusuna / hücre sınırına kadar yayılır, hacim korunur), mamul konumları.${
+          renderOpenPct != null ? ` Klasik render'da görünen zemin: %${renderOpenPct.toFixed(1)}.` : ''
+        }`}
+      >
         <span>Açıklık</span>
-        <b>{openPct === null ? '…' : `%${openPct.toFixed(1)}`}</b>
+        <b>%{m.openPct.toFixed(1)}</b>
+        <small className="metric-sub">teorik (yuvarlak iplik) %{m.openTheoretical.toFixed(1)}</small>
       </div>
       <div className="metric">
         <span>En büyük gözenek</span>
@@ -49,9 +56,10 @@ export function MetricsBar({
           {s.warp.groupingRatio.toFixed(2)} / {s.weft.groupingRatio.toFixed(2)}
         </b>
       </div>
-      <div className="metric">
+      <div className="metric" title="Paketleme modeli; alttaki satır Peirce örtmesi (sert yuvarlak iplik)">
         <span>Örtme</span>
-        <b>%{m.cover.toFixed(0)}</b>
+        <b>%{m.coverPacked.toFixed(0)}</b>
+        <small className="metric-sub">teorik (yuvarlak iplik) %{m.cover.toFixed(0)}</small>
       </div>
       <div className="metric">
         <span>Gramaj</span>

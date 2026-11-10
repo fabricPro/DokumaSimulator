@@ -584,7 +584,7 @@ export function App() {
             <input type="number" value={seed} onChange={(e) => setSeed(Math.floor(+e.target.value) || 0)} />
           </label>
         </div>
-        {metrics && structure && <MetricsBar metrics={metrics} structure={structure} openPct={info?.openPct ?? null} />}
+        {metrics && structure && <MetricsBar metrics={metrics} structure={structure} renderOpenPct={info?.openPct ?? null} />}
         <div className="repeat-card" title="Desen ancak bu uzunlukta tam tekrar eder">
           <span>Rapor tekrarları:</span>
           {repeats.reedEnds > 0 && (

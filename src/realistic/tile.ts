@@ -40,13 +40,16 @@ export interface TileInfo {
 export function tileFor(input: FabricInput, minTileMm = MIN_TILE_MM, maxThreads = MAX_TILE_THREADS): TileInfo {
   const pw = pitchMm(input.density.warpPerCm);
   const pf = pitchMm(input.density.weftPerCm);
-  let bx = lcm(input.weave.warps, input.warp.length);
-  let by = lcm(input.weave.wefts, input.weft.length);
+  // Tarak / çekme konum tablosu (FabricInput.positions) varsa döşeme onun periyodunun katı olmalı (dikişsiz)
+  const qx = input.positions?.warp?.centersMm.length ?? 1;
+  const qy = input.positions?.weft?.centersMm.length ?? 1;
+  let bx = lcm(lcm(input.weave.warps, input.warp.length), qx);
+  let by = lcm(lcm(input.weave.wefts, input.weft.length), qy);
   let colorExact = true;
   if (bx > maxThreads || by > maxThreads) {
     colorExact = false;
-    bx = input.weave.warps;
-    by = input.weave.wefts;
+    bx = lcm(input.weave.warps, qx);
+    by = lcm(input.weave.wefts, qy);
   }
   const kx = Math.max(1, Math.ceil(minTileMm / (bx * pw)));
   const ky = Math.max(1, Math.ceil(minTileMm / (by * pf)));

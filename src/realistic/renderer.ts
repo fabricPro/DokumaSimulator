@@ -38,6 +38,7 @@ import { generateHair } from './hair';
 import { resolveIrregularity } from './irregularity';
 import { packFabric, threadColors, threadTable, type PackedFabric } from './pack';
 import { pitchMm } from './scale';
+import { packingKey, resolvePacking } from './packing';
 import { bakeDensity, snapFreq, tileFor, type TileInfo } from './tile';
 import type { FabricInput, RealisticRenderer, RendererOptions, RenderStats, ViewParams } from './types';
 
@@ -56,7 +57,7 @@ interface Uploaded {
   weftType: WebGLTexture;
   yarnTypes: WebGLTexture;
   /** v2 kesişim z tablosu (RG32F) + iplik tablosu (RGBA32F, pack.ts threadTable); anahtar: düzensizlik / basıklık. */
-  cross: { key: string; tex: WebGLTexture; threads: WebGLTexture; colors: WebGLTexture; halfWidthMax: number } | null;
+  cross: { key: string; tex: WebGLTexture; threads: WebGLTexture; colors: WebGLTexture; halfWidthMax: number; span: [number, number] } | null;
 }
 
 interface GBuffer {
@@ -415,13 +416,15 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const irr = v.tuning?.irregularity ?? 1;
     const fl = v.tuning?.flattening ?? 1;
     const sp = v.tuning?.spread ?? 1;
-    const key = `${irr}|${fl}|${sp}`;
+    const pk = resolvePacking(v.tuning?.packing);
+    const key = `${irr}|${fl}|${sp}|${packingKey(pk)}`;
     if (t.cross && t.cross.key === key) return t.cross;
     if (t.cross) for (const x of [t.cross.tex, t.cross.threads, t.cross.colors]) gl.deleteTexture(x);
     const [px, py] = t.tile.threads;
-    const data = crossingTable(geometryParamsFromInput(input, fl, irr, 'v2', sp), px, py);
+    const gp = geometryParamsFromInput(input, fl, irr, 'v2', sp, pk);
+    const data = crossingTable(gp, px, py);
     const cx = createTexture(gl, gl.RGBA32F, px, py, gl.RGBA, gl.FLOAT, data);
-    const th = threadTable(input, [px, py], irr, fl, sp);
+    const th = threadTable(input, [px, py], irr, sp, pk);
     const tt = createTexture(gl, gl.RGBA32F, th.width, 8, gl.RGBA, gl.FLOAT, th.data);
     // En geniş kesit yarı genişliği a = r·√k (satır 0 / 4: (r, kayma, k, d))
     let halfWidthMax = 0;
@@ -433,7 +436,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     }
     const tc = threadColors(input, [px, py], irr, false);
     const colors = createTexture(gl, gl.RGBA32F, tc.width, 2, gl.RGBA, gl.FLOAT, tc.data);
-    t.cross = { key, tex: cx, threads: tt, colors, halfWidthMax };
+    t.cross = { key, tex: cx, threads: tt, colors, halfWidthMax, span: gp.span ?? [1, 1] };
     return t.cross;
   };
 
@@ -468,10 +471,14 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const [Px, Py] = t.tile.threads;
     gl.uniform4f(ug('uFreqW'), snapFreq(0.45, Py), snapFreq(0.13, Py), snapFreq(0.9, Py), snapFreq(0.31, Py));
     gl.uniform3f(ug('uFreqF'), snapFreq(0.45, Px), snapFreq(0.13, Px), snapFreq(0.7, Px));
-    // En geniş kesit (+ boyunca kalınlık %7, yol sapması ≤ 0.09·p, AA yarım pikseli) en küçük aralığı aşarsa 4 aday
+    // Aday yarı penceresi (eksen başına): en geniş kesit / en küçük merkez aralığı (geometry.ts layoutSpan;
+    // tarak gruplarında ve sığmayan dişte birden çok komşu üst üste biner). Yol sapması ≤ 0.09·p ve AA payı için +
     const pMin = Math.min(pitchMm(input.density.warpPerCm), pitchMm(input.density.weftPerCm));
-    const halfW = (cr?.halfWidthMax ?? 0) * 1.07 + 0.09 * pMin + 1 / Math.min(ppmXY[0], ppmXY[1]);
-    gl.uniform1i(ug('uSpan'), halfW < pMin ? 1 : 2);
+    const aa = 0.09 * pMin + 1 / Math.min(ppmXY[0], ppmXY[1]);
+    const sp2 = cr?.span ?? [1, 1];
+    const halfW = (cr?.halfWidthMax ?? 0) * 1.07 + aa;
+    const base = halfW < pMin ? 1 : 2;
+    gl.uniform2i(ug('uSpan'), Math.min(8, Math.max(base, sp2[0])), Math.min(8, Math.max(base, sp2[1])));
     commonUniforms(ug, t, input, v);
     gl.uniform1i(ug('uLayered'), opts.singleLayer ? 0 : 1);
     gl.uniform1f(ug('uDetailMm'), filterFwhmMm(v.distance ?? 'loupe'));
@@ -730,6 +737,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       tn.model ?? 'v2',
       tn.flattening ?? 1,
       tn.spread ?? 1,
+      packingKey(resolvePacking(tn.packing)),
       tn.softEdge ?? 0,
       tn.contactShadow ?? 1,
       filtered ? ['F', distance, Dfilt, +fwhm.toFixed(4)] : 0,

@@ -12,7 +12,9 @@
 import type { FabricSpec } from '../../render-engine/types';
 import { effectiveLoomWarpDensity, effectiveLoomWeftDensity } from '../../render-engine/physical/metrics';
 import { finishedDensities } from '../../render-engine/physical/shrinkage';
-import type { FabricInput, Luster, YarnType } from '../types';
+import type { FabricInput, Luster, PeriodicCenters, YarnType } from '../types';
+import { specAxisTables, type SpecAxisTable } from './positionsFromSpec';
+import { appliedShrinkPct } from '../../render-engine/physical/shrinkDistribution';
 import { iplikToYarnType } from '../../adapters/iplik';
 
 export interface SurfaceDefaults {
@@ -33,11 +35,13 @@ function hex6(c: string): string {
 
 export interface SpecAdapterOptions {
   /**
-   * 'loom' (varsayılan): tezgah sıklığı. 'finished': çekme sonrası ORTALAMA mamul sıklığı.
-   * VARSAYIM / sınır: gerçekçi mod şimdilik eşit aralık kullanır; CPU mamul render'ındaki bağlantıya
-   * göre değişen aralık (yay modeli) ve tarak gruplaması `FabricInput.positions` ile ileride bağlanacak.
+   * 'loom' (varsayılan): tezgah konumları (tarak varsa diş geometrisinden). 'finished': çekme yay modeli sonrası
+   * mamul konumları (uygulanan çekme fiziksel sınırla kırpılmış). İkisi de `FabricInput.positions` ile (klasik
+   * render'la aynı tablo: adapters/positionsFromSpec); sıklık = periyottaki iplik / periyot.
    */
   densities?: 'loom' | 'finished';
+  /** false: eşit aralık (eski davranış; yalnız karşılaştırma için). Varsayılan true. */
+  positions?: boolean;
 }
 
 export function fabricInputFromSpec(
@@ -75,8 +79,31 @@ export function fabricInputFromSpec(
     warp: seq(spec.warpSequence).map((i) => ({ color: hex6(spec.warpSlots[i].color), yarnType: i })),
     weft: seq(spec.weftSequence).map((i) => ({ color: hex6(spec.weftSlots[i].color), yarnType: nW + i })),
     yarnTypes,
-    density: densityOf(spec, opts.densities ?? 'loom'),
+    ...placement(spec, opts.densities ?? 'loom', opts.positions ?? true),
     shrink: { widthPct: spec.weftShrinkPct, lengthPct: spec.warpShrinkPct },
+  };
+}
+
+/** Konum tablosu periyot üst sınırı (iplik; döşeme ve GPU tablo genişliği). */
+export const MAX_POSITION_PERIOD = 2048;
+
+function placement(spec: FabricSpec, kind: 'loom' | 'finished', usePositions: boolean): Pick<FabricInput, 'density' | 'positions'> {
+  if (!usePositions) return { density: densityOf(spec, kind) };
+  const t = specAxisTables(spec, kind);
+  const strip = (a: SpecAxisTable): PeriodicCenters => ({
+    centersMm: a.centersMm,
+    periodMm: a.periodMm,
+    ...(a.limitLMm ? { limitLMm: a.limitLMm, limitRMm: a.limitRMm } : {}),
+  });
+  // Çok uzun periyot (EKOK patlaması) GPU iplik tablosuna sığmaz: o eksende ortalama sıklıkla eşit aralık
+  const fallback = densityOf(spec, kind);
+  const ok = (a: SpecAxisTable) => a.centersMm.length <= MAX_POSITION_PERIOD;
+  return {
+    density: {
+      warpPerCm: ok(t.warp) ? (10 * t.warp.centersMm.length) / t.warp.periodMm : fallback.warpPerCm,
+      weftPerCm: ok(t.weft) ? (10 * t.weft.centersMm.length) / t.weft.periodMm : fallback.weftPerCm,
+    },
+    positions: { ...(ok(t.warp) ? { warp: strip(t.warp) } : {}), ...(ok(t.weft) ? { weft: strip(t.weft) } : {}) },
   };
 }
 
@@ -84,6 +111,7 @@ function densityOf(spec: FabricSpec, kind: 'loom' | 'finished'): FabricInput['de
   const warpPerCm = effectiveLoomWarpDensity(spec);
   const weftPerCm = effectiveLoomWeftDensity(spec);
   if (kind === 'loom') return { warpPerCm, weftPerCm };
-  const f = finishedDensities(warpPerCm, weftPerCm, spec.warpShrinkPct, spec.weftShrinkPct);
+  const a = appliedShrinkPct(spec);
+  const f = finishedDensities(warpPerCm, weftPerCm, a.warp, a.weft);
   return { warpPerCm: f.warp, weftPerCm: f.weft };
 }

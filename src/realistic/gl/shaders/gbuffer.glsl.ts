@@ -42,7 +42,7 @@ uniform vec4 uFreqW;            // çözgü boyunca döşemeye yuvarlanmış fre
 uniform vec3 uFreqF;            // atkı boyunca (0.45, 0.13, 0.7)
 uniform float uSoftEdge;        // yumuşak iplik kenarı (kesit yarı genişliği oranı): kenarda lif dolgusu
 uniform float uDetailMm;        // Göz / Uzak: algısal filtre çapı (mm); periyodu < 2·çap iplik içi detay söner (0 = Lup)
-uniform int uSpan;              // aday yarı genişliği: 1 → iki komşu merkez; 2 → dört (kesit genişliği > aralık)
+uniform ivec2 uSpan;            // aday yarı penceresi (çözgü, atkı): krepaj aralığı (k, k+1) çevresinde k+1−s .. k+s (geometry.ts layoutSpan)
 uniform sampler2D uFiber;       // R16F, tekrar eden anizotropik lif gürültüsü (x enine, y boyunca)
 uniform ivec2 uWeaveSize;
 uniform int uWarpCount;
@@ -311,16 +311,19 @@ void v2Main(float X, float Y, vec2 fp) {
   Cand t2 = noCand();
 
   // Çözgü adayları: kesişim z'leri (uCross.x) arasında cosine geçiş
+  // Tarak / çekme konumlarında merkez eşit aralıktan birkaç aralık sapabilir: sınırlı arama (geometry.ts interval)
   int k0 = int(floor(Y / pf - 0.5));
   float c0 = cV2(1, k0); float c1 = cV2(1, k0 + 1);
-  if (Y < c0) { k0 -= 1; c1 = c0; c0 = cV2(1, k0); } else if (Y >= c1) { k0 += 1; c0 = c1; c1 = cV2(1, k0 + 1); }
+  for (int n = 0; n < 16; n++) { if (!(Y < c0)) break; k0 -= 1; c1 = c0; c0 = cV2(1, k0); }
+  for (int n = 0; n < 16; n++) { if (!(Y >= c1)) break; k0 += 1; c0 = c1; c1 = cV2(1, k0 + 1); }
   float s = clamp((Y - c0) / (c1 - c0), 0.0, 1.0);
   float f = cs(s);
   float dsW = 0.5 * PI * sin(PI * s) / (c1 - c0);
   // Atkıların krepaj aralığı: X'i çevreleyen iki çözgü merkezi (k2, k2 + 1)
   int k2 = int(floor(X / pw - 0.5));
   float e0 = cV2(0, k2); float e1 = cV2(0, k2 + 1);
-  if (X < e0) { k2 -= 1; e1 = e0; e0 = cV2(0, k2); } else if (X >= e1) { k2 += 1; e0 = e1; e1 = cV2(0, k2 + 1); }
+  for (int n = 0; n < 16; n++) { if (!(X < e0)) break; k2 -= 1; e1 = e0; e0 = cV2(0, k2); }
+  for (int n = 0; n < 16; n++) { if (!(X >= e1)) break; k2 += 1; e0 = e1; e1 = cV2(0, k2 + 1); }
   float s2 = clamp((X - e0) / (e1 - e0), 0.0, 1.0);
   float f2 = cs(s2);
   float dsF = 0.5 * PI * sin(PI * s2) / (e1 - e0);
@@ -330,8 +333,8 @@ void v2Main(float X, float Y, vec2 fp) {
   int k2p = pmod(k2, uPeriod.x);
   int k2q = k2p + 1 == uPeriod.x ? 0 : k2p + 1;
   // sabit sınırlı döngü (sürücü açabilsin); uSpan dışı adaylar atlanır
-  for (int di = -1; di <= 2; di++) {
-    if (di < 1 - uSpan || di > uSpan) continue;
+  for (int di = -7; di <= 8; di++) {
+    if (di < 1 - uSpan.x || di > uSpan.x) continue;
     int i = k2 + di;
     int ip = pmod(i, uPeriod.x);
     vec4 ta = thrP(0, ip, 0); vec4 tb = thrP(0, ip, 1); vec4 tc2 = thrP(0, ip, 2);
@@ -352,8 +355,8 @@ void v2Main(float X, float Y, vec2 fp) {
   }
 
   // Atkı adayları (uCross.y); eşitlikte çözgü üstte (sıkı büyüktür)
-  for (int dj = -1; dj <= 2; dj++) {
-    if (dj < 1 - uSpan || dj > uSpan) continue;
+  for (int dj = -7; dj <= 8; dj++) {
+    if (dj < 1 - uSpan.y || dj > uSpan.y) continue;
     int j = k0 + dj;
     int jp = pmod(j, uPeriod.y);
     vec4 ta = thrP(1, jp, 0); vec4 tb = thrP(1, jp, 1); vec4 tc2 = thrP(1, jp, 2);

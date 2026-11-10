@@ -9,7 +9,8 @@
  *    satır 1 (kat sayısı, yapı kodu STRUCTURE_CODE, 0, 0).
  */
 import { DEFAULT_YARN_DENSITY, diameterMm, toTex } from './yarn';
-import { crossSectionAspect, systemFill } from './geometry';
+import { axisLayout, type InputAxisLayout } from './layout';
+import type { PackingOverrides } from './packing';
 import { threadRand } from './hash';
 import { colorOffsetOklab, linearToOklab, oklabToLinear, resolveIrregularity } from './irregularity';
 import { srgbToLinear } from './surface';
@@ -107,29 +108,34 @@ export function threadTable(
   input: FabricInput,
   period: [number, number],
   irregularityMul = 1,
-  flattenFactor = 1,
   spreadMul = 1,
-): { width: number; data: Float32Array } {
+  packing?: PackingOverrides,
+): { width: number; data: Float32Array; layouts: [InputAxisLayout, InputAxisLayout] } {
   const ir = resolveIrregularity(input, irregularityMul);
   const width = Math.max(period[0], period[1]);
   const data = new Float32Array(width * 8 * 4);
   const pitch = [pitchMm(input.density.warpPerCm), pitchMm(input.density.weftPerCm)];
-  const fill = systemFill(input);
+  // Paketleme (packing.ts): merkez kayması (tarak / çekme konumları + hücre içine itme) ve kesit en/boyu
+  const layouts: [InputAxisLayout, InputAxisLayout] = [
+    axisLayout(input, 0, period[0], packing, spreadMul),
+    axisLayout(input, 1, period[1], packing, spreadMul),
+  ];
   for (const ax of [0, 1] as const) {
     const list = ax === 0 ? input.warp : input.weft;
+    const lay = layouts[ax];
     for (let i = 0; i < period[ax]; i++) {
       const y = input.yarnTypes[list[pmod(i, list.length)].yarnType];
       const d = diameterMm(toTex(y.count, y.unit), y.yarnDensity ?? DEFAULT_YARN_DENSITY);
       const t = (ch: number) => threadRand(ax, i, ch, ir.seed);
       const row = (k: number, v: [number, number, number, number]) => data.set(v, ((ax * 4 + k) * width + i) * 4);
       const T = (y.twistPerM ?? DEFAULT_TWIST_PER_M) / 1000;
-      row(0, [0.5 * d * (1 + ir.thickness * t(0)), ir.position * pitch[ax] * t(1), crossSectionAspect(d, pitch[ax], flattenFactor, y.structure, y.plies ?? 2, spreadMul, fill[1 - ax]), d]);
+      row(0, [0.5 * d * (1 + ir.thickness * t(0)), lay.offset[i] + ir.position * pitch[ax] * t(1), lay.aspect[i], d]);
       row(1, [Math.PI * t(5), Math.PI * t(6), t(7), t(8)]);
       row(2, [Math.PI * t(9), t(10), t(11), y.structure === 'textured' ? TEXTURED_EDGE_SOFT : 0]);
       row(3, [y.twist === 'S' ? -T : T, Math.max(1, y.plies ?? 2), STRUCTURE_CODE[y.structure ?? 'spun'], 0]);
     }
   }
-  return { width, data };
+  return { width, data, layouts };
 }
 
 /**

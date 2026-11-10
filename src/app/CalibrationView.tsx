@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Kalibrasyon görünümü (Faz 5): gerçek numune fotoğrafı ile gerçekçi render'ı aynı ölçekte karşılaştırır.
  * Bu dosya App'ten lazy yüklenir; gerçekçi modül de yalnız bu parçayla birlikte gelir.
@@ -35,7 +36,30 @@ import {
   type YarnSurface,
 } from '../realistic';
 import { fabricInputFromSpec } from '../realistic/adapters/fromSpec';
+import { DEFAULT_PACKING, PACK_KIND_LABEL, packKind, type PackingParams, type PackKind } from '../realistic/packing';
 import { Slider } from './Controls';
+
+/**
+ * calibration/photos/ klasöründeki gerçek kumaş makro fotoğrafları (geliştirmede ve build'de URL olarak). Aynı adlı
+ * .json yan dosya { "pxPerCm": 1180 } ölçeği verir; yoksa ölçek elle / iki noktayla girilir.
+ */
+const FOLDER_PHOTOS = import.meta.glob('/calibration/photos/*.{jpg,jpeg,png,webp,JPG,JPEG,PNG}', {
+  query: '?url',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
+const FOLDER_SIDECARS = import.meta.glob('/calibration/photos/*.json', { import: 'default', eager: true }) as Record<string, { pxPerCm?: number }>;
+const folderPhotos = Object.entries(FOLDER_PHOTOS)
+  .map(([path, url]) => {
+    const name = path.split('/').pop()!;
+    const side = FOLDER_SIDECARS[path.replace(/\.[^.]+$/, '.json')];
+    return { name, url, pxPerCm: side?.pxPerCm };
+  })
+  .sort((a, b) => a.name.localeCompare(b.name));
+const clonePacking = (p: PackingParams): PackingParams => ({
+  kinds: Object.fromEntries(Object.entries(p.kinds).map(([k, v]) => [k, { ...v }])) as PackingParams['kinds'],
+  compression: p.compression,
+});
 
 const MIN_S = 20; // px/cm
 const MAX_S = 20000;
@@ -95,6 +119,7 @@ export default function CalibrationView({ spec, seed }: { spec: FabricSpec; seed
   const [view, setView] = useState<CalibView>({ screenPxPerCm: 400, x0Cm: 0, y0Cm: 0, simShiftCm: [0, 0] });
   const [light, setLight] = useState({ azimuthDeg: 135, elevationDeg: 45 });
   const [tuning, setTuning] = useState<Tune>({ ...DEFAULT_TUNING });
+  const [packing, setPacking] = useState<PackingParams>(() => clonePacking(DEFAULT_PACKING));
   const [quality, setQuality] = useState<Quality>('high');
   const [overrides, setOverrides] = useState<Record<number, YarnSurface>>({});
   const [selType, setSelType] = useState(0);
@@ -160,38 +185,48 @@ export default function CalibrationView({ spec, seed }: { spec: FabricSpec; seed
       }
       const t0 = performance.now();
       try {
-        r.render(input, simView(view, simPane.h, W / simPane.w, { light, quality, tuning }));
+        r.render(input, simView(view, simPane.h, W / simPane.w, { light, quality, tuning: { ...tuning, packing } }));
         setMs(performance.now() - t0);
       } catch (e) {
         setMsg('Render hatası: ' + (e as Error).message);
       }
     });
     return () => cancelAnimationFrame(raf);
-  }, [input, view, light, quality, tuning, simPane.w, simPane.h]);
+  }, [input, view, light, quality, tuning, packing, simPane.w, simPane.h]);
 
   /* ------------------------------ fotoğraf ------------------------------ */
 
+  const showPhoto = (url: string, name: string, pxPerCm?: number) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = pxPerCm && pxPerCm > 0 ? pxPerCm : photoPxPerCm;
+      if (pxPerCm && pxPerCm > 0) setPhotoPxPerCm(pxPerCm);
+      setPhoto({ url, name, width: img.naturalWidth, height: img.naturalHeight });
+      setMarks([]);
+      // Fotoğrafın genişliği panele sığsın
+      const paneW = cmp === 'side' ? stage.w / 2 : stage.w;
+      if (paneW > 0) {
+        const s = Math.min(MAX_S, Math.max(MIN_S, paneW / (img.naturalWidth / scale)));
+        setView((v) => ({ ...v, screenPxPerCm: s, x0Cm: 0, y0Cm: 0 }));
+      }
+      setMsg(`Fotoğraf: ${name} (${img.naturalWidth}×${img.naturalHeight} px${pxPerCm ? `, ölçek ${pxPerCm} px/cm yan dosyadan` : ''})`);
+    };
+    img.onerror = () => setMsg('Görüntü açılamadı.');
+    img.src = url;
+  };
   const loadPhoto = (file: File) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      const img = new Image();
-      img.onload = () => {
-        setPhoto({ url, name: file.name, width: img.naturalWidth, height: img.naturalHeight });
-        setMarks([]);
-        // Fotoğrafın genişliği panele sığsın
-        const paneW = cmp === 'side' ? stage.w / 2 : stage.w;
-        if (paneW > 0) {
-          const s = Math.min(MAX_S, Math.max(MIN_S, paneW / (img.naturalWidth / photoPxPerCm)));
-          setView((v) => ({ ...v, screenPxPerCm: s, x0Cm: 0, y0Cm: 0 }));
-        }
-        setMsg(`Fotoğraf: ${file.name} (${img.naturalWidth}×${img.naturalHeight} px)`);
-      };
-      img.onerror = () => setMsg('Görüntü açılamadı.');
-      img.src = url;
-    };
+    reader.onload = () => showPhoto(String(reader.result), file.name);
     reader.readAsDataURL(file);
   };
+  // Kumaştaki iplik tiplerinin paketleme sınıfları (kaydırıcılar yalnız bunlar için)
+  const kindsInUse = useMemo(() => {
+    const set = new Set<PackKind>();
+    for (const y of input?.yarnTypes ?? []) set.add(packKind(y.structure, y.plies ?? 2));
+    return [...set];
+  }, [input]);
+  const setKind = (k: PackKind, patch: Partial<PackingParams['kinds'][PackKind]>) =>
+    setPacking((p) => ({ ...p, kinds: { ...p.kinds, [k]: { ...p.kinds[k], ...patch } } }));
 
   /* --------------------------- etkileşim (ortak) --------------------------- */
 
@@ -282,6 +317,7 @@ export default function CalibrationView({ spec, seed }: { spec: FabricSpec; seed
       surface,
       light: { ...light },
       tuning: { ...tuning },
+      packing: clonePacking(packing),
       quality,
       ...(photo ? { photoPxPerCm } : {}),
     };
@@ -294,6 +330,7 @@ export default function CalibrationView({ spec, seed }: { spec: FabricSpec; seed
       const p = parsePreset(await file.text());
       setLight({ ...p.light });
       setTuning({ ...p.tuning });
+      setPacking(clonePacking(p.packing ?? DEFAULT_PACKING));
       if (p.quality) setQuality(p.quality);
       setPresetName(p.name);
       const idx = input ? matchingYarnTypes(input, p.yarn) : [];
@@ -367,6 +404,24 @@ export default function CalibrationView({ spec, seed }: { spec: FabricSpec; seed
             }}
           />
           <button onClick={() => photoInput.current?.click()}>Fotoğraf yükle…</button>
+          <label className="numfield">
+            <span>calibration/photos/</span>
+            <select
+              value=""
+              onChange={(e) => {
+                const f = folderPhotos.find((x) => x.name === e.target.value);
+                if (f) showPhoto(f.url, f.name, f.pxPerCm);
+              }}
+            >
+              <option value="">{folderPhotos.length ? `Klasörden seç (${folderPhotos.length})…` : 'Klasörde fotoğraf yok'}</option>
+              {folderPhotos.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {f.name}
+                  {f.pxPerCm ? ` · ${f.pxPerCm} px/cm` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="row">
             <label className="numfield">
               <span>Fotoğraf ölçeği</span>
@@ -406,6 +461,25 @@ export default function CalibrationView({ spec, seed }: { spec: FabricSpec; seed
           <h3>Işık</h3>
           <Slider label="Azimut" value={light.azimuthDeg} min={0} max={360} step={1} format={(v) => `${v}°`} onChange={(v) => setLight((l) => ({ ...l, azimuthDeg: v }))} />
           <Slider label="Yükseklik" value={light.elevationDeg} min={5} max={90} step={1} format={(v) => `${v}°`} onChange={(v) => setLight((l) => ({ ...l, elevationDeg: v }))} />
+        </section>
+
+        <section className="panel">
+          <h3>Paketleme</h3>
+          <p className="hint">
+            İplik komşusuna ya da hücre sınırına kadar yassılaşıp genişler (hacim korunur). En/boy: tipin en fazla yayılması;
+            doldurma: hücrenin en fazla ne kadarı dolar. Açıklık metriği de bu modelden.
+          </p>
+          {kindsInUse.map((k) => (
+            <div key={k}>
+              <b className="small">{PACK_KIND_LABEL[k]}</b>
+              <Slider label="En büyük en/boy" value={packing.kinds[k].maxAspect} min={1} max={6} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => setKind(k, { maxAspect: v })} />
+              <Slider label="Doldurma oranı" value={packing.kinds[k].fill} min={0.3} max={1} step={0.01} format={(v) => '%' + Math.round(v * 100)} onChange={(v) => setKind(k, { fill: v })} />
+            </div>
+          ))}
+          <Slider label="Sıkışma katsayısı" value={packing.compression} min={0.5} max={1} step={0.01} format={(v) => v.toFixed(2)} onChange={(v) => setPacking((p) => ({ ...p, compression: v }))} />
+          <button className="link" onClick={() => setPacking(clonePacking(DEFAULT_PACKING))}>
+            Varsayılana dön
+          </button>
         </section>
 
         <section className="panel">

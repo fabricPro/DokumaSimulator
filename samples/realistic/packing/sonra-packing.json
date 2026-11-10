@@ -1,0 +1,78 @@
+{
+  "stage": "sonra",
+  "bendix": {
+    "classicOpenPct": 26.8,
+    "realisticOpenPct": 12.2
+  },
+  "banded": {
+    "classicOpenPct": 4.7,
+    "realisticOpenPct": 5.8
+  },
+  "reed": [
+    {
+      "report": "4-0",
+      "reedNumber": 10,
+      "cover": 73.42266784802416,
+      "openPct": 12.453252167843113,
+      "openTheoretical": 26.577332151975835
+    },
+    {
+      "report": "2-2-3-0",
+      "reedNumber": 11.429,
+      "cover": 73.42318952810798,
+      "openPct": 11.892740529831782,
+      "openTheoretical": 26.576810471892014
+    }
+  ],
+  "shrink": {
+    "entered": {
+      "warp": 15,
+      "weft": 22.5
+    },
+    "bendixApplied": {
+      "warp": 15,
+      "weft": 22.5
+    },
+    "bendixMax": {
+      "warp": 32.23607753017307,
+      "weft": 41.039414805340215
+    },
+    "clampExample": {
+      "applied": {
+        "warp": 15,
+        "weft": 18.019271920025446
+      },
+      "Dw": 26.83557528122752,
+      "Df": 21.176470588235293,
+      "warnings": [
+        "Atkı çekmesi %22.5 (en, çözgü aralıkları) bu örgü ve iplikle fiziksel olarak mümkün değil; ulaşılabilen en fazla %18.0 — uygulanan: %18.0."
+      ]
+    },
+    "rows": [
+      {
+        "pxPerMm": 2,
+        "moire": 13.53,
+        "size": [
+          420,
+          320
+        ]
+      },
+      {
+        "pxPerMm": 5,
+        "moire": 37.19,
+        "size": [
+          420,
+          320
+        ]
+      },
+      {
+        "pxPerMm": 9,
+        "moire": 63.34,
+        "size": [
+          420,
+          320
+        ]
+      }
+    ]
+  }
+}
