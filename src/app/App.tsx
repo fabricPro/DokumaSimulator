@@ -12,6 +12,8 @@ import type { PhysicalInfo } from '../render-engine/worker';
 import { parseWif } from '../importers/wif';
 import { parseFabricJson, serializeFabricJson } from '../importers/fabricJson';
 import { atkiJsonImporter } from '../importers/atkiJson';
+import { atkiJsonToFabricSpec, VARSAYILAN_SECENEKLER, type AtkiSecenekler } from '../adapters/atkiJson';
+import { DEMO_DESENLER, type AtkiBelge } from './demoDesenler';
 import { colorsToSlots } from '../importers/slots';
 import { physicalExample } from '../presets/physicalExample';
 import { FabricPanel, YarnPanel } from './Controls';
@@ -19,7 +21,22 @@ import { FabricPane, LOUPE_ZOOM, MAX_PPM, MIN_PPM, REALISTIC_FULL_PPM, type MmVi
 import { MetricsBar } from './MetricsBar';
 import { RenderClient, imageToCanvas } from './renderClient';
 import { WeaveEditor } from './WeaveEditor';
-import type { QualityPref } from './RealisticLayer';
+import type { BackgroundPref, DistancePref, QualityPref } from './RealisticLayer';
+import { CARD_WIDTH_MM, cssPxPerMm } from '../realistic/viewDistance';
+
+/** .atki.json çekme taşımaz; demo / içe aktarma yüklemesinde varsayılan çekme (VARSAYIM: çözgü boy %6, atkı en %10). */
+const DEMO_SHRINK = { warpPct: 6, weftPct: 10 };
+
+/** Ekran kalibrasyonu (CSS px / mm çarpanı) bu tarayıcıda saklanır; yoksa 96 dpi varsayımı (1). */
+const CALIB_KEY = 'dokuma.ekranKalibrasyonu';
+function loadCalib(): number {
+  try {
+    const v = parseFloat(localStorage.getItem(CALIB_KEY) ?? '');
+    return v > 0.3 && v < 3 ? v : 1;
+  } catch {
+    return 1;
+  }
+}
 
 /** Kalibrasyon görünümü ve gerçekçi render modülü ayrı parça olarak, ilk açılışta yüklenir. */
 const CalibrationView = lazy(() => import('./CalibrationView'));
@@ -49,7 +66,7 @@ export function App() {
   const [spec, setSpec] = useState<FabricSpec>(() => physicalExample(6, 10));
   const [seed, setSeed] = useState(3);
   const [mode, setMode] = useState<'single' | 'compare'>('compare');
-  const [compareKind, setCompareKind] = useState<'sameYarns' | 'sameArea'>('sameYarns');
+  const [compareKind, setCompareKind] = useState<'sameYarns' | 'sameArea' | 'physicalArea'>('sameYarns');
   const [showStrips, setShowStrips] = useState(false);
   const [showLinks, setShowLinks] = useState(true);
   const [showWeftLinks, setShowWeftLinks] = useState(false);
@@ -65,14 +82,30 @@ export function App() {
   // Faz 6: gerçekçi görünüm (varsayılan kapalı; destek yoksa düğme sessizce devre dışı kalır)
   const [realOn, setRealOn] = useState(false);
   const [realQuality, setRealQuality] = useState<QualityPref>('auto');
+  // Zemin: kullanıcı elle seçmediyse moda göre (Göz / Uzak 'açık' — arkası aydınlık perde; Lup 'koyu gri');
+  // elle seçildiyse mod değişince korunur
+  const [userBackground, setUserBackground] = useState<BackgroundPref | null>(null);
+  // Bakış mesafesi (zoom'dan ayrı): Göz / Uzak fiziksel ölçek + ön filtre, Lup gerçekçi yakın görünüm
+  const [distance, setDistance] = useState<DistancePref>('eye');
+  // Yakın (tam gerçekçi lup) zemini: Lup koyu gri, Göz / Uzak açık. Uzak görünüm zemini her modda Göz zemini (açık):
+  // Lup uzaklaşınca koyu zemin yerine Göz zemini. Elle seçilen zemin ikisinde de geçerli.
+  const realBackground: BackgroundPref = userBackground ?? (distance === 'loupe' ? 'darkgray' : 'light');
+  const farBackground: BackgroundPref = userBackground ?? 'light';
+  const [screenCalib, setScreenCalib] = useState(loadCalib);
+  const physPpm = cssPxPerMm(screenCalib);
   const [realUnavailable, setRealUnavailable] = useState(false);
+  // Yüklü .atki.json belgesi (demo ya da içe aktarılan): varyant / seçenek değişince desen yeniden açılır
+  const [atki, setAtki] = useState<{ key: string; belge: AtkiBelge; varyant: number; secenekler: AtkiSecenekler } | null>(null);
   const onRealUnavailable = useCallback(() => {
     setRealUnavailable(true);
     setRealOn(false);
   }, []);
   const realistic = useMemo(
-    () => (realOn && !realUnavailable ? { quality: realQuality, densities: 'finished' as const, onUnavailable: onRealUnavailable } : undefined),
-    [realOn, realUnavailable, realQuality, onRealUnavailable],
+    () =>
+      realOn && !realUnavailable
+        ? { quality: realQuality, background: realBackground, farBackground, distance, densities: 'finished' as const, onUnavailable: onRealUnavailable }
+        : undefined,
+    [realOn, realUnavailable, realQuality, realBackground, farBackground, distance, onRealUnavailable],
   );
   const [calibOpened, setCalibOpened] = useState(false);
 
@@ -106,6 +139,10 @@ export function App() {
     (mm: number) => setView((v) => ({ ...v, pxPerMm: Math.max(MIN_PPM, Math.min(MAX_PPM, paneSize.w / mm)) })),
     [paneSize.w],
   );
+  // Bakış modu bir filtredir, ölçek değil: zoom her modda serbest. "Gerçek boyut" ayrı bir zoom ön ayarı (ekran
+  // kalibrasyonuyla: ekranda 1 mm = kumaşta 1 mm).
+  const setRealSize = useCallback(() => setView((v) => ({ ...v, pxPerMm: physPpm })), [physPpm]);
+  const realSizeOn = Math.abs(view.pxPerMm - physPpm) < physPpm * 0.005;
   // İlk ölçümde 10 mm göster
   useEffect(() => {
     if (fitted.current || paneSize.w < 100) return;
@@ -114,11 +151,22 @@ export function App() {
   }, [paneSize.w, setArea]);
   const shownMm = (paneSize.w || 600) / view.pxPerMm;
 
-  // "Aynı iplikler": tezgah penceresindeki ipliklerin mamuldeki (daralmış) penceresi
+  // "Aynı iplikler": tezgah penceresindeki ipliklerin mamuldeki (daralmış) penceresi.
+  // "Aynı alan": iki panel AYNI boyutta (mm) ve üst kenarı AYNI atkıdan başlar — hizalama noktası sabit (tezgah
+  // penceresinin üst kenarındaki atkı → mamuldeki konumu); çekme yüzünden bant sınırları kaymaz, yalnız alt kısım
+  // (daha çok / az atkı) farklılaşır. "Fiziksel alan": eski davranış (aynı mm koordinatı, hizasız).
   const finishedWindow = useMemo<MmWindow | undefined>(() => {
-    if (mode !== 'compare' || compareKind !== 'sameYarns' || !positions || paneSize.w === 0) return undefined;
+    if (mode !== 'compare' || (compareKind !== 'sameYarns' && compareKind !== 'sameArea') || !positions || paneSize.w === 0) {
+      return undefined;
+    }
     const x1 = view.x0Mm + paneSize.w / view.pxPerMm;
     const y1 = view.y0Mm + paneSize.h / view.pxPerMm;
+    if (compareKind === 'sameArea') {
+      const loomH = paneSize.h / view.pxPerMm;
+      const loomW = paneSize.w / view.pxPerMm;
+      const fTop = mapLoomToFinished(positions.weft, y1);
+      return { x0Mm: view.x0Mm, y0Mm: fTop - loomH, widthMm: loomW, heightMm: loomH };
+    }
     const fx0 = mapLoomToFinished(positions.warp, view.x0Mm);
     const fy0 = mapLoomToFinished(positions.weft, view.y0Mm);
     return {
@@ -192,20 +240,43 @@ export function App() {
     [showWeftLinks, positions, view.y0Mm],
   );
   const shrinkLabel = useMemo(() => {
-    if (!finishedWindow || paneSize.w === 0) return undefined;
+    if (!finishedWindow || paneSize.w === 0 || compareKind !== 'sameYarns') return undefined;
     const loomW = paneSize.w / view.pxPerMm;
     const loomH = paneSize.h / view.pxPerMm;
     const boy = 100 * (1 - finishedWindow.heightMm / loomH);
     const en = 100 * (1 - finishedWindow.widthMm / loomW);
     return `boy %${boy.toFixed(1)} kısaldı, en %${en.toFixed(1)} daraldı`;
-  }, [finishedWindow, paneSize, view.pxPerMm]);
+  }, [finishedWindow, compareKind, paneSize, view.pxPerMm]);
+
+  /** .atki.json belgesini (varyant + seçeneklerle) spec'e açar. Panelde düzenlenmiş iplik tanımları korunur. */
+  const openAtki = (next: { key: string; belge: AtkiBelge; varyant: number; secenekler: AtkiSecenekler }, keepYarns: boolean) => {
+    try {
+      setSpec((s) => {
+        const iplikler = keepYarns && s.yarns?.length ? s.yarns : next.belge.iplikler;
+        const out = atkiJsonToFabricSpec(next.belge.json, { ...next.belge, iplikler, varyantIndex: next.varyant, secenekler: next.secenekler });
+        // önceki desenin tarağı / atkı sıklık raporu bu desene ait değil
+        // Çekme: ilk yüklemede varsayılan (çözgü boy %6, atkı en %10 — mamul sıklığı tezgahtan farklı olsun);
+        // varyant / seçenek değişiminde kullanıcının değeri korunur
+        const shrink = keepYarns
+          ? { warpShrinkPct: s.warpShrinkPct, weftShrinkPct: s.weftShrinkPct }
+          : { warpShrinkPct: DEMO_SHRINK.warpPct, weftShrinkPct: DEMO_SHRINK.weftPct };
+        return { ...s, ...out, ...shrink, reed: undefined, weftDensityReport: undefined };
+      });
+      setAtki(next);
+      const v = next.belge.json.varyasyonlar[next.varyant];
+      setMessage(`${next.belge.ad} yüklendi${v ? ' · ' + v.ad : ''}.`);
+    } catch (e) {
+      setMessage('Desen açılamadı: ' + (e as Error).message);
+    }
+  };
 
   const onImport = async (file: File) => {
     try {
       const text = await file.text();
       const name = file.name.toLowerCase();
       if (atkiJsonImporter.accepts(name)) {
-        setSpec((s) => ({ ...s, ...atkiJsonImporter.parse(text) }));
+        const b = atkiJsonImporter.load(text);
+        openAtki({ key: 'dosya:' + file.name, belge: { ...b, ad: b.json.desen.ad || file.name, varyantIndex: 0 }, varyant: 0, secenekler: VARSAYILAN_SECENEKLER }, false);
       } else if (name.endsWith('.wif')) {
         const r = parseWif(text);
         const warnings = [...r.warnings];
@@ -304,6 +375,67 @@ export function App() {
             }}
           />
           <button onClick={() => fileRef.current?.click()}>İçe aktar (WIF / JSON)</button>
+          <select
+            value={atki && !atki.key.startsWith('dosya:') ? atki.key : ''}
+            onChange={(e) => {
+              const d = DEMO_DESENLER.find((x) => x.key === e.target.value);
+              if (d) openAtki({ key: d.key, belge: d, varyant: d.varyantIndex, secenekler: atki?.secenekler ?? VARSAYILAN_SECENEKLER }, false);
+            }}
+            title="Tezgah'tan dışa aktarılmış gerçek .atki.json desenleri"
+          >
+            <option value="">Demo desenler…</option>
+            {DEMO_DESENLER.map((d) => (
+              <option key={d.key} value={d.key}>
+                {d.ad}
+              </option>
+            ))}
+          </select>
+          {atki && atki.belge.json.varyasyonlar.length > 1 && (
+            <select
+              value={atki.varyant}
+              onChange={(e) => openAtki({ ...atki, varyant: +e.target.value }, true)}
+              title="Kolorway varyantı"
+            >
+              {atki.belge.json.varyasyonlar.map((v, k) => (
+                <option key={k} value={k}>
+                  {v.ad}
+                </option>
+              ))}
+            </select>
+          )}
+          {atki && (
+            <details className="atki-gelismis">
+              <summary>gelişmiş</summary>
+              <div className="atki-gelismis-body">
+                <label title="Örgü matrisinin satır sırasını çevir (rows[0] bandın son atkısı)">
+                  <input
+                    type="checkbox"
+                    checked={atki.secenekler.satirTers}
+                    onChange={(e) => openAtki({ ...atki, secenekler: { ...atki.secenekler, satirTers: e.target.checked } }, true)}
+                  />
+                  satirTers
+                </label>
+                <label title="0/1'i çevir ('1' = atkı üstte)">
+                  <input
+                    type="checkbox"
+                    checked={atki.secenekler.matrisTers}
+                    onChange={(e) => openAtki({ ...atki, secenekler: { ...atki.secenekler, matrisTers: e.target.checked } }, true)}
+                  />
+                  matrisTers
+                </label>
+                <label title="Bant içinde örgü satırı hangi atkı indeksine göre ilerlesin">
+                  atkı modu
+                  <select
+                    value={atki.secenekler.atkiModu}
+                    onChange={(e) => openAtki({ ...atki, secenekler: { ...atki.secenekler, atkiModu: e.target.value as AtkiSecenekler['atkiModu'] } }, true)}
+                  >
+                    <option value="bant">bant içi</option>
+                    <option value="global">global</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+          )}
           <button onClick={() => download('kumas.json', new Blob([serializeFabricJson(spec)], { type: 'application/json' }))}>
             JSON dışa aktar
           </button>
@@ -345,6 +477,34 @@ export function App() {
               </button>
             ))}
           </div>
+          <button className={realSizeOn ? 'on' : ''} onClick={setRealSize} title="Gerçek boyut: ekranda 1 mm = kumaşta 1 mm (ekran kalibrasyonuyla)">
+            Gerçek boyut
+          </button>
+          <details className="atki-gelismis" title="Ekran kalibrasyonu: çubuğu bir kredi kartının genişliğine eşitleyin">
+              <summary>ekran</summary>
+              <div className="atki-gelismis-body">
+                <div style={{ width: CARD_WIDTH_MM * physPpm, height: 18, background: '#3fc0a0', borderRadius: 3 }} />
+                <span className="muted">Çubuğu kredi kartı genişliğine ({CARD_WIDTH_MM} mm) eşitleyin</span>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.6}
+                  step={0.005}
+                  value={screenCalib}
+                  onChange={(e) => {
+                    const v = +e.target.value;
+                    setScreenCalib(v);
+                    try {
+                      localStorage.setItem(CALIB_KEY, String(v));
+                    } catch {
+                      /* depolama kapalıysa yalnız bu oturum */
+                    }
+                  }}
+                />
+                <span className="muted">{(96 * screenCalib).toFixed(0)} dpi (CSS)</span>
+              </div>
+            </details>
+
           <span className="muted">
             {shownMm.toFixed(1)} mm · {view.pxPerMm.toFixed(0)} px/mm
           </span>
@@ -353,8 +513,19 @@ export function App() {
               <button className={compareKind === 'sameYarns' ? 'on' : ''} onClick={() => setCompareKind('sameYarns')}>
                 Aynı iplikler
               </button>
-              <button className={compareKind === 'sameArea' ? 'on' : ''} onClick={() => setCompareKind('sameArea')}>
+              <button
+                className={compareKind === 'sameArea' ? 'on' : ''}
+                onClick={() => setCompareKind('sameArea')}
+                title="Aynı boyutta alan; üst kenar iki panelde aynı atkıdan başlar (çekmeye rağmen bant sınırları hizalı)"
+              >
                 Aynı alan
+              </button>
+              <button
+                className={compareKind === 'physicalArea' ? 'on' : ''}
+                onClick={() => setCompareKind('physicalArea')}
+                title="Aynı mm koordinatı (hizalama yok; çekme yüzünden mamulde bant sınırları kayar)"
+              >
+                Fiziksel alan
               </button>
             </div>
           )}
@@ -391,6 +562,21 @@ export function App() {
               <option value="high">Kalite: yüksek</option>
               <option value="medium">Kalite: orta</option>
               <option value="low">Kalite: düşük</option>
+            </select>
+          )}
+          {realOn && (
+            <select value={distance} onChange={(e) => setDistance(e.target.value as DistancePref)} title="Bakış mesafesi (zoom'dan ayrı)">
+              <option value="eye">Bakış: Göz (40 cm)</option>
+              <option value="far">Bakış: Uzak (2 m)</option>
+              <option value="loupe">Bakış: Lup</option>
+            </select>
+          )}
+          {realOn && (
+            <select value={realBackground} onChange={(e) => setUserBackground(e.target.value as BackgroundPref)} title="Boşlukların zemini (açık: arkası aydınlık perde; arkadan ışık: ışık geçirgenliği). Elle seçilince mod değişince korunur.">
+              <option value="light">Zemin: açık</option>
+              <option value="darkgray">Zemin: koyu gri</option>
+              <option value="black">Zemin: siyah</option>
+              <option value="backlight">Zemin: arkadan ışık</option>
             </select>
           )}
           <label className="seed">
@@ -450,7 +636,7 @@ export function App() {
             spec={debSpec}
             seed={seed}
             view={view}
-            title={mode === 'compare' ? (compareKind === 'sameYarns' ? 'Mamul (aynı iplikler)' : 'Mamul') : undefined}
+            title={mode === 'compare' ? (compareKind === 'sameYarns' ? 'Mamul (aynı iplikler)' : compareKind === 'sameArea' ? 'Mamul (üst kenar aynı atkı)' : 'Mamul') : undefined}
             renderWindow={finishedWindow}
             strips={showStrips && positions ? { warp: positions.warp, weft: positions.weft, which: 'finished' } : undefined}
             reedStrip={finishedStrip}

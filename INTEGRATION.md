@@ -153,7 +153,8 @@ const { quality, scale } = mod.PERF_LADDER[auto.level];
 ```
 
 Merdiven sırası: high → medium → low → low ×0.75 → low ×0.5 çözünürlük. Bütçe aşılınca bir basamak iner;
-ortalama bütçenin yarısının altına düşünce bir basamak çıkar.
+ortalama bütçenin yarısının altına düşünce bir basamak çıkar. Dokuma Simülatörü'nde merdiven yalnız aktif
+gezinme sırasında uygulanır; durağan çizim her zaman tepe basamakta (Tezgah ve Mamul panelleri aynı kalitede).
 
 Ölçüm (`samples/realistic/fix-v2/perf.json`, masaüstü, AMD RX 7700 XT, 1024², GPU zamanlayıcısı):
 
@@ -192,10 +193,67 @@ bir kez pişirilir. Pan / zoom anahtara girmez; yalnız `mm mod döşeme` ile d�
 - `r.stats().tile`: döşeme boyu (mm), texel boyutu, pişirme süresi, lif sayısı. `bakeMs` yalnız pişirme
   yapılan karede dolu.
 
+## 6b. Bakış modu (Göz / Uzak / Lup) — Tezgah'ta varsayılan **Göz**
+
+`viewDistance.ts` (saf, testli). Bakış modu bir **ölçek değil, kumaş uzayında algısal filtredir**; zoom her modda
+serbesttir. Tezgah entegrasyonunda varsayılan `distance: 'eye'`:
+
+```ts
+r.render(input, { ...view, distance: 'eye' }); // 'eye' | 'far' | 'loupe'; pxPerCm = kullanıcının zoom'u
+// "Gerçek boyut" ayrı bir zoom ön ayarıdır (bakış moduyla karışmaz):
+const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // ekranda 1 mm = kumaşta 1 mm
+```
+
+- **Çözünürlük sınırı ve filtre:** gözün 1 yay dakikalık çözünürlüğü = bir çevrim (çizgi + boşluk): Göz (40 cm)
+  ≈ 0.12 mm, Uzak (2 m) ≈ 0.6 mm (`resolvableMm`). Bu bir bulanıklık yarıçapı değil, çözünürlük sınırıdır. Filtre
+  Gauss σ = çözünürlük / 2.5 (`filterSigmaMm`: Göz 0.047 mm, Uzak 0.233 mm; sınır frekansında MTF ≈ %4, 0.5 mm'lik
+  örgü hücresi Göz'de %78 kalır). Çekirdek kumaşa bağlıdır; iplik içi detay (kat / büküm, lif) periyodu < 2 × çözünürlük
+  ise söner; örgü dokusu, dimi çizgisi, iplik yönü kalır.
+- **Yakınlaştırınca bulanıklaşma yok — net çizime geçiş** (`sharpBlend`): filtrenin ekrandaki büyüklüğü
+  σ_px = σ_mm · px/mm. σ_px ≤ 1.5 iken görüntü filtreli (pişirilmiş) yoldur; 1.5 px'i aşınca bulanıklık artmaz,
+  1.5 → 4 px arasında (≈ 3 zoom adımı) net (lup tipi) çizime karışır (GL blend). Net çizimde Göz / Uzak'ın "malzeme"
+  karakteri korunur (`materialTuning`: zemin modun varsayılanı açık, yayılma ×2.2 + yumuşak iplik kenarı ile iplik
+  araları kapanır, rölyef 0.5, melanj 0.7, tüylülük 0.5); Lup tam detaylı, koyu zeminli inceleme modudur. Göz ≈ 32 →
+  86 px/mm, Uzak ≈ 6.4 → 17 px/mm arasında geçiş olur.
+- **Ölçeğe bağlı otomatik geçiş** (`viewDistance.REAL_BLEND_START_PX` = 6, `REAL_BLEND_END_PX` = 12 — tek yerde, ayarlanabilir):
+  ekranda ORTALAMA iplik çapı (px; desenin çözgü / atkı ortalaması, iplik başına değil) belirler. < 6 px: uzak görünüm
+  (Göz / Uzak filtresi + açık zemin; Lup modunda da Göz filtresi ve Göz zemini); 6–12 px: uzak görünümden gerçekçi
+  lupa yumuşak geçiş (log smoothstep ≈ 1.5 zoom adımı, GL blend); > 12 px: tam gerçekçi lup. Bakış seçici: Göz / Uzak =
+  uzak görünümün filtresi, yakında da açık zemin + kapalı iplik araları; Lup = yakında tam detay + koyu zemin
+  (`tuning.background`), uzaklaşınca Göz'e düşer (`tuning.farBackground`, varsayılan açık). Her panel kendi px/mm'sine
+  göre bağımsız karar verir. Büyüteç dairesi: panel uzak görünümdeyken imleç altında ikinci bir katman
+  (`tuning.forceReal`; ortalama iplik çapı ≥ `MAGNIFIER_MIN_YARN_PX` = 14 px olacak kadar büyütülür) her zaman tam lup.
+  Blend bölgesinde uzak görünüm önbellekten, gerçekçi lup yarım çözünürlükte (gezinme) çizilir.
+- **Otomatik LOD:** her modda piksel ayak izi daha büyükse ayak izine eşit minimum filtre (`effectiveFwhmMm`; örnekleme
+  +0.6 LOD sapmasıyla ≈ 1.5 piksel — iplik aralığı ~2 piksele düşünce moiré olmasın, panel yoğunluğundan bağımsız):
+  ön süzülmüş döşemenin mip seviyesi donanımca seçilir. Lup'ta iplik 3 pikselin altına inince (`useFilteredPath`)
+  keskin ekran yolu yerine aynı filtreli yol kullanılır (aliasing / "tel elek" yok).
+- **Önbellek:** filtreli yol ışıklı sahneyi bir kez pişirir, kumaş mm'sinde ayrılabilir Gauss ile ön süzer
+  (doğrusal uzay, sRGB doku) ve mip'ler; gezinmede yalnız örnekler. Yoğunluk 2'nin kuvveti kovasıdır
+  (`filteredBakeDensity`: ≥ 3 texel / en ince iplik, ≤ 8 texel / FWHM, ≤ ekran, ≤ 64 /mm); zoom yalnız kova
+  değiştirince yeniden pişirir. Döşeme sığmazsa (kenar ≤ MAX_TEXTURE_SIZE, ≤ 2.5 M texel) görünür pencere pişer.
+- **İplik başına sapma** (ton ΔE, kalınlık) filtreli yolda döşemeye pişirilmez; görüntülemede kumaş mm'sinden
+  hesaplanan iplik indeksiyle 4096 iplik periyotlu tablodan uygulanır (≥ 20 döşeme; 12 mm'lik döşemede tekrar
+  eden düzenli şerit oluşmaz).
+- **Zemin:** Göz / Uzak'ta varsayılan `background: 'light'` (sıcak açık gri; arkası aydınlık perde), Lup'ta
+  `'darkgray'`; kullanıcının elle seçtiği zemin mod değişince korunur.
+- **Ekran kalibrasyonu** ("Gerçek boyut" için): CSS 96 dpi varsayımı (VARSAYIM); ekrandaki çubuğu kredi kartı
+  genişliğine (85.6 mm, `CARD_WIDTH_MM`) eşitleyerek çarpan ayarlanır.
+- **Lup keskin yol:** uzun raporda döşeme lup çözünürlüğüne sığmıyorsa ao / gölge yalnız görünür pencere (×2)
+  için pişirilir; görünüm pencereden çıkınca yeniden.
+- **Gezinme:** pan / zoom sürerken `navigating: true` verin (Dokuma Simülatörü 150 ms içindeki ardışık görünüm
+  değişimini gezinme sayar). Filtreli yolda yoğunluk kovası değişse de mevcut pişirme (mip) okunur, yeniden
+  pişirme durunca yapılır; Lup'ta keskin yol yerine filtreli yol kullanılır (her karede G-buffer + ışık yok).
+  Keskin ve filtreli yolun önbellekleri ayrıdır; geçişte yeniden pişirme olmaz.
+- **Kumaş ölçeğinde doğal düzensizlik** (`tuning.fabricIrregularity`, varsayılan 1, 0 = kapalı): atkı sıklığında
+  barre (±%2.5), çözgü sapması (0.12 mm), atkı yayı (0.10 mm) — kumaş koordinatının yavaş bükümü, dalga boyları
+  37–213 mm (rapordan bağımsız); iplik ton farkı ΔE (`irregularity.colorDeltaE`) 4096 iplik periyotlu tablodan.
+  Seed'e bağlı, deterministik.
+
 ## 7. Yalnız yakın görünüm / büyüteç
 
-Gerçekçi görünüm uzak ölçekte bilgi katmaz ve GPU'yu boşa harcar. Önerilen kullanım (Dokuma Simülatörü'nde
-uygulanan):
+Lup modunda gerçekçi görünüm uzak ölçekte bilgi katmaz ve GPU'yu boşa harcar. Önerilen kullanım (Dokuma
+Simülatörü'nde uygulanan; Göz / Uzak'ta katman her zaman tüm paneli örter, ölçek çubuğu katmanın üstündedir):
 
 - **Yakında** (≥ 100 px/mm): tüm kumaş paneli gerçekçi katmanla örtülür. Katman, mevcut görünümün tam
   üstünde aynı mm ↔ piksel eşlemesiyle durur.

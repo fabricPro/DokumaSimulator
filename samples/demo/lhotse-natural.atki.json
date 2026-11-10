@@ -1,0 +1,697 @@
+{
+  "tur": "tezgah-atki-desen",
+  "surum": 1,
+  "meta": {
+    "kaynakId": "28d1ebb5-8cc0-449f-a6e3-b17a40aa7227",
+    "kaynakVersiyon": 224,
+    "disaAktarma": "2026-11-10T07:45:34.201Z",
+    "uygulama": "Tezgah"
+  },
+  "desen": {
+    "ad": "LHOTSE NATURAL",
+    "atkiSiklik": 15,
+    "cozguSiklik": 15,
+    "cerceveKapasite": 8,
+    "aciklama": null,
+    "kaynak": "insan",
+    "etiketler": [],
+    "klasor": "24/1 Flex",
+    "program": {
+      "surum": 1,
+      "ogeler": [
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 1,
+            "armur_desen_id": "4906c633-b6d8-4db8-bfc5-883f48406e6f"
+          },
+          "pick": 90,
+          "iplik": 1
+        },
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 5,
+            "armur_desen_id": "8b50cfa1-06d0-4ab0-8e50-699689ad3589"
+          },
+          "pick": 16,
+          "iplik": 2
+        },
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 70,
+            "armur_desen_id": "e29bafd6-8e71-4fc2-a4e6-6b5f2d8cf712"
+          },
+          "pick": 40,
+          "iplik": 2
+        },
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 109,
+            "armur_desen_id": "c692edd9-53bf-4250-badb-f85f4be55235"
+          },
+          "pick": 40,
+          "iplik": 2
+        },
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 115,
+            "armur_desen_id": "8b50cfa1-06d0-4ab0-8e50-699689ad3589"
+          },
+          "pick": 16,
+          "iplik": 2
+        },
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 0,
+            "armur_desen_id": ""
+          },
+          "pick": 16,
+          "iplik": 1
+        },
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 114,
+            "armur_desen_id": "8b50cfa1-06d0-4ab0-8e50-699689ad3589"
+          },
+          "pick": 16,
+          "iplik": 2
+        },
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 0,
+            "armur_desen_id": ""
+          },
+          "pick": 82,
+          "iplik": 1
+        },
+        {
+          "tip": "bant",
+          "orgu": {
+            "versiyon": 0,
+            "armur_desen_id": ""
+          },
+          "pick": 22,
+          "iplik": 1
+        },
+        {
+          "ad": "1",
+          "tip": "grup",
+          "ogeler": [
+            {
+              "ad": "ob",
+              "tip": "grup",
+              "ogeler": [
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 38,
+                    "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60"
+                  },
+                  "pick": 2,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 1,
+                    "armur_desen_id": "e723c608-3518-458e-b9fb-52fd3cc879d1"
+                  },
+                  "pick": 4,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                }
+              ],
+              "tekrar": 1
+            },
+            {
+              "ad": "ob",
+              "tip": "grup",
+              "ogeler": [
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 38,
+                    "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60"
+                  },
+                  "pick": 2,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 2,
+                    "armur_desen_id": "e723c608-3518-458e-b9fb-52fd3cc879d1"
+                  },
+                  "pick": 4,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                }
+              ],
+              "tekrar": 1
+            },
+            {
+              "ad": "ob",
+              "tip": "grup",
+              "ogeler": [
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 38,
+                    "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60"
+                  },
+                  "pick": 2,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 1,
+                    "armur_desen_id": "e723c608-3518-458e-b9fb-52fd3cc879d1"
+                  },
+                  "pick": 4,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                }
+              ],
+              "tekrar": 1
+            },
+            {
+              "ad": "ob",
+              "tip": "grup",
+              "ogeler": [
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 38,
+                    "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60"
+                  },
+                  "pick": 2,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 1,
+                    "armur_desen_id": "e723c608-3518-458e-b9fb-52fd3cc879d1"
+                  },
+                  "pick": 4,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                }
+              ],
+              "tekrar": 1
+            },
+            {
+              "ad": "ob",
+              "tip": "grup",
+              "ogeler": [
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 38,
+                    "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60"
+                  },
+                  "pick": 2,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 1,
+                    "armur_desen_id": "e723c608-3518-458e-b9fb-52fd3cc879d1"
+                  },
+                  "pick": 4,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 1,
+                    "armur_desen_id": "e35568f5-3c37-4d52-87db-42c7836cb2c8"
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                }
+              ],
+              "tekrar": 1
+            },
+            {
+              "ad": "ob",
+              "tip": "grup",
+              "ogeler": [
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 38,
+                    "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60"
+                  },
+                  "pick": 2,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 1,
+                    "armur_desen_id": "e723c608-3518-458e-b9fb-52fd3cc879d1"
+                  },
+                  "pick": 4,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 0,
+                    "armur_desen_id": ""
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                }
+              ],
+              "tekrar": 1
+            },
+            {
+              "ad": "ob",
+              "tip": "grup",
+              "ogeler": [
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 39,
+                    "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60"
+                  },
+                  "pick": 2,
+                  "iplik": 2
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 2,
+                    "armur_desen_id": "3a4472e9-fa46-4be1-93db-89ee5ec9ce30"
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                },
+                {
+                  "tip": "bant",
+                  "orgu": {
+                    "versiyon": 3,
+                    "armur_desen_id": "854c99e9-b278-44ba-a6fa-f61eb534c0a6"
+                  },
+                  "pick": 16,
+                  "iplik": 1
+                }
+              ],
+              "tekrar": 1
+            }
+          ],
+          "tekrar": 1
+        }
+      ],
+      "kenar": {
+        "orgu": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "cerceveler": [
+          1,
+          2
+        ]
+      }
+    }
+  },
+  "orguler": [
+    {
+      "armur_desen_id": "4906c633-b6d8-4db8-bfc5-883f48406e6f",
+      "versiyon": 1,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 2,
+        "w": 8,
+        "rows": [
+          "10101010",
+          "01010101"
+        ]
+      },
+      "raporH": 2,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "8b50cfa1-06d0-4ab0-8e50-699689ad3589",
+      "versiyon": 5,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 4,
+        "w": 8,
+        "rows": [
+          "00110011",
+          "00110011",
+          "11001100",
+          "11001100"
+        ]
+      },
+      "raporH": 4,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "e29bafd6-8e71-4fc2-a4e6-6b5f2d8cf712",
+      "versiyon": 70,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 8,
+        "w": 8,
+        "rows": [
+          "00001111",
+          "00011110",
+          "00111100",
+          "01111000",
+          "11110000",
+          "11100001",
+          "11000011",
+          "10000111"
+        ]
+      },
+      "raporH": 8,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "c692edd9-53bf-4250-badb-f85f4be55235",
+      "versiyon": 109,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 8,
+        "w": 8,
+        "rows": [
+          "11000011",
+          "11100001",
+          "11110000",
+          "01111000",
+          "00111100",
+          "00011110",
+          "00001111",
+          "10000111"
+        ]
+      },
+      "raporH": 8,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "8b50cfa1-06d0-4ab0-8e50-699689ad3589",
+      "versiyon": 115,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 4,
+        "w": 8,
+        "rows": [
+          "00110011",
+          "00110011",
+          "11001100",
+          "11001100"
+        ]
+      },
+      "raporH": 4,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "8b50cfa1-06d0-4ab0-8e50-699689ad3589",
+      "versiyon": 114,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 4,
+        "w": 8,
+        "rows": [
+          "11001100",
+          "11001100",
+          "00110011",
+          "00110011"
+        ]
+      },
+      "raporH": 4,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60",
+      "versiyon": 38,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 2,
+        "w": 4,
+        "rows": [
+          "1100",
+          "0011"
+        ]
+      },
+      "raporH": 2,
+      "raporW": 4,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "e723c608-3518-458e-b9fb-52fd3cc879d1",
+      "versiyon": 1,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 4,
+        "w": 4,
+        "rows": [
+          "1100",
+          "1100",
+          "0011",
+          "0011"
+        ]
+      },
+      "raporH": 4,
+      "raporW": 4,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "e723c608-3518-458e-b9fb-52fd3cc879d1",
+      "versiyon": 2,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 4,
+        "w": 8,
+        "rows": [
+          "11001100",
+          "11001100",
+          "00110011",
+          "00110011"
+        ]
+      },
+      "raporH": 4,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "e35568f5-3c37-4d52-87db-42c7836cb2c8",
+      "versiyon": 1,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 2,
+        "w": 8,
+        "rows": [
+          "10101010",
+          "01010101"
+        ]
+      },
+      "raporH": 2,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "e40f7d23-741c-42a5-8d88-2f6ddc7f3f60",
+      "versiyon": 39,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 2,
+        "w": 8,
+        "rows": [
+          "11001100",
+          "00110011"
+        ]
+      },
+      "raporH": 2,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "3a4472e9-fa46-4be1-93db-89ee5ec9ce30",
+      "versiyon": 2,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 2,
+        "w": 8,
+        "rows": [
+          "10101010",
+          "01010101"
+        ]
+      },
+      "raporH": 2,
+      "raporW": 8,
+      "atkiRapor": null
+    },
+    {
+      "armur_desen_id": "854c99e9-b278-44ba-a6fa-f61eb534c0a6",
+      "versiyon": 3,
+      "ad": "Örgü (kopya)",
+      "aile": "ozel",
+      "teknik": "dokuma",
+      "matris": {
+        "h": 2,
+        "w": 2,
+        "rows": [
+          "10",
+          "01"
+        ]
+      },
+      "raporH": 2,
+      "raporW": 2,
+      "atkiRapor": null
+    }
+  ],
+  "varyasyonlar": [
+    {
+      "ad": "Varyasyon 1",
+      "sira": 0,
+      "kaynak": "insan",
+      "kolorway": {
+        "1": {
+          "renk": "#e7ddc8"
+        },
+        "2": {
+          "renk": "#6f5f47"
+        },
+        "zemin": {
+          "renk": "#ffffff"
+        }
+      }
+    }
+  ]
+}

@@ -19,6 +19,15 @@ export interface YarnType {
   hairiness: number;
   /** İplik hacim yoğunluğu (g/cm³), çap hesabı için. Varsayılan 0.85. */
   yarnDensity?: number;
+  /** Kat sayısı (kat oluğu aralığı = K / (kat · T)). Varsayılan 2. */
+  plies?: number;
+  /**
+   * Yapı: 'spun' (varsayılan; eğrilmiş, kesit yuvarlağa yakın, basıklık yalnız sıkışmadan, en/boy ≤ 1.4) ya da
+   * 'tape' (yassı bant: en/boy 3, kat oluğu yok), 'filament' (düz, bükümsüz / az bükümlü, tüysüz, sıkışmada
+   * belirgin yassılaşır: en/boy ≤ 2), 'textured' (tekstüre: hacimli, mat, büküm görünmez, ince kıvrımlı lif
+   * dokusu, yumuşak kenar).
+   */
+  structure?: 'spun' | 'tape' | 'filament' | 'textured';
 }
 
 /** Rapor dizisindeki bir iplik. */
@@ -97,8 +106,33 @@ export interface Tuning {
   model?: 'classic' | 'v2';
   /** v2 yüzey rölyefi çarpanı (kat, lif); 0 = yalnız taban geometri. Varsayılan 1. */
   relief?: number;
-  /** Melanj (iplik boyunca renk dalgalanması) çarpanı; 1 = prototip (±%10 lif, ±%5 ince lif). */
+  /** Melanj (iplik boyunca renk dalgalanması) çarpanı; 1 = fix-v3 (≈ ±%6: lif ±%4.5, ince lif ±%1.5). */
   melange?: number;
+  /**
+   * Zemin (boşluk) görünümü (fix-v3): 'darkgray' (varsayılan, doğrusal ≈ 0.02), 'black', 'backlight' (arkadan
+   * ışık: boşluklar aydınlık, iplikler koyu siluet + hafif kenar ışığı; perde ışık geçirgenliği).
+   */
+  background?: 'darkgray' | 'black' | 'backlight' | 'light';
+  /** Kontakt gölge şiddeti (üst iplik → alttaki iplik; 0.4·d genişlik). 0 = kapalı, varsayılan 1. */
+  contactShadow?: number;
+  /**
+   * Kumaş ölçeğinde doğal düzensizlik çarpanı (barre ±%2.5, çözgü sapması, atkı yayı; rapordan bağımsız uzun periyot).
+   * 0 = kapalı, varsayılan 1. Seed'e bağlı, deterministik.
+   */
+  fabricIrregularity?: number;
+  /**
+   * Uzak görünümün zemini (ölçek küçükken; Lup modunda bile). Verilmezse: Göz / Uzak'ta `background`, Lup'ta 'light'
+   * (Lup uzaklaşınca Göz görünümüne düşer, koyu zemin yerine Göz zemini).
+   */
+  farBackground?: 'darkgray' | 'black' | 'backlight' | 'light';
+  /** Büyüteç dairesi: ölçeğe bakmadan tam gerçekçi lup çiz (uzak görünümde imleç altı). */
+  forceReal?: boolean;
+  /** Yumuşak iplik kenarı (kesit yarı genişliği oranı): kenarda lif dolgusu; 0 = yalnız piksel yumuşatması. Göz / Uzak varsayılanı 0.12. */
+  softEdge?: number;
+  /** İplik yayılması çarpanı (Durak 2-E; 0 = sert yuvarlak kesit, 1 = varsayılan tip modeli). */
+  spread?: number;
+  /** Ton eşleme beyaz noktası (pozlama sonrası doğrusal; küçük = daha erken sıkıştırır). Varsayılan 2. */
+  whitePoint?: number;
 }
 
 export interface ViewParams {
@@ -109,6 +143,16 @@ export interface ViewParams {
   light: { azimuthDeg: number; elevationDeg: number };
   quality: Quality;
   tuning?: Tuning;
+  /**
+   * Bakış mesafesi (viewDistance.ts): bir ÖLÇEK değil, kumaş uzayında algısal FİLTRE. 'eye' Göz 40 cm (çap 0.116 mm),
+   * 'far' Uzak 2 m (0.582 mm), 'loupe' (varsayılan) filtre yok. Zoom (pxPerCm) her modda serbest.
+   */
+  distance?: 'eye' | 'far' | 'loupe';
+  /**
+   * Etkin gezinme (pan / zoom) sürüyor: filtreli yolda mevcut pişirme yoğunluk kovası değişse de yeniden pişirilmez
+   * (mip'ten okunur); Lup'ta da keskin yol yerine filtreli yol kullanılır. Durunca false verin.
+   */
+  navigating?: boolean;
 }
 
 /** Son karelerin süre ölçümü (Faz 6). */
@@ -137,7 +181,7 @@ export interface RealisticRenderer {
   /** Hata ayıklama / snapshot: son karenin RGBA pikselleri (alttan yukarı satırlar, GL düzeni). */
   readPixels(): Uint8Array;
   /** Hata ayıklama: G-buffer (gb0 = yükseklik, u, v, kimlik; gb1 = normal.xy, kaplama, a). GL düzeni. */
-  readGBuffer(): { width: number; height: number; gb0: Float32Array; gb1: Float32Array };
+  readGBuffer(): { width: number; height: number; gb0: Float32Array; gb1: Float32Array; gb3?: Float32Array };
 }
 
 export interface RendererOptions {
@@ -147,12 +191,21 @@ export interface RendererOptions {
   debugView?: 'flat' | 'preview' | 'lit';
   /** Kare süresi ölçümü: 'auto' = timer varsa timer, yoksa sync. Varsayılan 'none'. */
   measure?: 'auto' | 'timer' | 'sync' | 'none';
-  /** WebGL bağlamı kaybedilince çağrılır (ör. sekme arka planda, sürücü sıfırlandı). */
+  /** WebGL bağlamı kaybedilince çağrılır (ör. sekme arka planda, sürücü sıfırlandı). Bağlam geri gelebilir. */
   onContextLost?: () => void;
+  /** Bağlam geri geldi ve kaynaklar yeniden kuruldu: çağıran yeniden çizmelidir. */
+  onContextRestored?: () => void;
   /**
    * Önbellek profili (fix-v2 adım 2). 'desktop' (varsayılan): ao / gölge / tüy döşemeye pişirilir, geometri
    * ve ışık her karede ekran çözünürlüğünde. 'mobile': tüm ışıklı sahne döşemeye bir kez pişirilir, her
    * karede yalnız döşenir (salt görüntüleme; çok yakında döşeme çözünürlüğü kadar keskin).
    */
   profile?: 'desktop' | 'mobile';
+  /** Hata ayıklama / ölçüm: katmanlı çizimi kapat (yalnız üst iplik, kenar yumuşatma yok). Varsayılan false. */
+  singleLayer?: boolean;
+  /**
+   * Hata ayıklama / ölçüm (şerit nedenlerini ayırmak için; uygulama kullanmaz): filtreli yolda iplik başına sapmayı
+   * eskisi gibi döşemeye pişir (`bakeVariation`, döşeme periyotlu) ya da pişirme yoğunluğunu zorla (`density`).
+   */
+  debugFilter?: { bakeVariation?: boolean; density?: number };
 }

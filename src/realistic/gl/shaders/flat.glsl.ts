@@ -12,6 +12,33 @@ void main() {
 }
 `;
 
+/**
+ * Kumaş ölçeğinde doğal düzensizlik (alan bükümü; yalnız ekran geçişlerinde, pişirmede değil). Kumaş koordinatı
+ * bükülür, tüm geçişler (geometri, ao / gölge döşemesi, ön süzülmüş renk) aynı bükülmüş noktadan okur → tutarlı.
+ * Dalga boyları rapordan bağımsız ve uzun (37–213 mm, birbiriyle ölçülemez oranlarda): rapor tekrarında aynı kusur
+ * birebir tekrar etmez.
+ *  - atkı sıklığı dalgalanması (barre): dy'/dy = 1 + A·Σ wₖ·cos(2πy/Lₖ + φₖ), A = uFab.x (±%2.5 varsayılan);
+ *  - çözgü sapması: x kayması y'nin yavaş fonksiyonu, genlik uFab.y mm (0.12 varsayılan; λ 127 / 53 mm);
+ *  - atkı yayı: y kayması x'in yavaş fonksiyonu, genlik uFab.z mm (0.10 varsayılan; λ 151 mm).
+ * VARSAYIM (kalibre edilecek): genlikler ve dalga boyları gözle seçildi. uFab = 0 → kapalı.
+ */
+export const FABRIC_WARP_GLSL = /* glsl */ `
+uniform vec3 uFab;
+uniform vec3 uFabPhA;
+uniform vec3 uFabPhB;
+vec2 fabricWarp(vec2 mm) {
+  if (uFab.x == 0.0 && uFab.y == 0.0 && uFab.z == 0.0) return mm;
+  const float TAU = 6.2831853;
+  const vec3 LB = vec3(37.3, 91.7, 213.1);
+  const vec3 WB = vec3(0.5, 0.33, 0.17);
+  float dy = 0.0;
+  for (int k = 0; k < 3; k++) dy += uFab.x * WB[k] * LB[k] / TAU * sin(TAU * mm.y / LB[k] + uFabPhA[k]);
+  float dx = uFab.y * (0.7 * sin(TAU * mm.y / 127.0 + uFabPhB.x) + 0.3 * sin(TAU * mm.y / 53.0 + uFabPhB.y));
+  dy += uFab.z * sin(TAU * mm.x / 151.0 + uFabPhB.z);
+  return vec2(mm.x + dx, mm.y + dy);
+}
+`;
+
 /** Ortak: pozitif mod ve piksel → mm. */
 export const COMMON_GLSL = /* glsl */ `
 // GLSL ES'te negatif tamsayı bölümü/kalanı tanımsız: taban bölmeyi float ile yap.

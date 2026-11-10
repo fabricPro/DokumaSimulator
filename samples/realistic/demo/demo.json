@@ -1,0 +1,11 @@
+{
+  "light": {
+    "azimuthDeg": 135,
+    "elevationDeg": 45
+  },
+  "lhotse": {
+    "weftCount": 600,
+    "warpRepeat": 8,
+    "y0Mm": 53.33
+  }
+}

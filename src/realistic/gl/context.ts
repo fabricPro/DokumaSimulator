@@ -85,3 +85,16 @@ export function createTexture(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   return t;
 }
+
+/**
+ * Tuval DOM'dan gerçekten çıkarılmışsa WebGL bağlamını bırakır. Bırakılmayan bağlamlar tarayıcı sınırına (~16) kadar
+ * birikir ve EN ESKİSİ (ilk açılan panel) sessizce kaybedilir. Hemen değil bir sonraki turda denetlenir: React
+ * StrictMode / yeniden bağlama aynı tuvalle renderer'ı yeniden kurar (tuval hâlâ DOM'da → bağlam korunur).
+ */
+export function releaseContextWhenDetached(canvas: HTMLCanvasElement): void {
+  setTimeout(() => {
+    if (canvas.isConnected) return;
+    const gl = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  }, 0);
+}

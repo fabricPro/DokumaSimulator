@@ -1,0 +1,309 @@
+{
+  "note": "şerit gücü = sütun ortalaması (doğrusal parlaklık) DFT; periyot ≥ 2·çözgü aralığı olan en büyük bağıl genlik (%). Kabul: < %1.",
+  "rows": [
+    {
+      "demo": "lhotse",
+      "distance": "eye",
+      "zoom": "tam rapor",
+      "pxPerMm": 1.6,
+      "stripePct": 0.63,
+      "stripePeriodMm": 10,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          256,
+          6400
+        ],
+        "ms": 30.800000190734863,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "lhotse",
+      "distance": "eye",
+      "zoom": "10 mm",
+      "pxPerMm": 64,
+      "stripePct": 1.58,
+      "stripePeriodMm": 2.5,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          579,
+          14482
+        ],
+        "ms": 40,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "lhotse",
+      "distance": "eye",
+      "zoom": "5 mm",
+      "pxPerMm": 128,
+      "stripePct": 1.24,
+      "stripePeriodMm": 5,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          579,
+          14482
+        ],
+        "ms": 17.399999618530273,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "lhotse",
+      "distance": "far",
+      "zoom": "tam rapor",
+      "pxPerMm": 1.6,
+      "stripePct": 0.22,
+      "stripePeriodMm": 6.67,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          256,
+          6400
+        ],
+        "ms": 76.59999942779541,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "lhotse",
+      "distance": "far",
+      "zoom": "10 mm",
+      "pxPerMm": 64,
+      "stripePct": 1.46,
+      "stripePeriodMm": 2,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          256,
+          6400
+        ],
+        "ms": 16.40000057220459,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "lhotse",
+      "distance": "far",
+      "zoom": "5 mm",
+      "pxPerMm": 128,
+      "stripePct": 0.67,
+      "stripePeriodMm": 2.5,
+      "tile": {
+        "mm": [
+          16,
+          400
+        ],
+        "texels": [
+          256,
+          6400
+        ],
+        "ms": 13,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "lhotse",
+      "distance": "loupe",
+      "zoom": "15 px/mm",
+      "pxPerMm": 15,
+      "stripePct": 2.03,
+      "stripePeriodMm": 2.03
+    },
+    {
+      "demo": "bendix-v6",
+      "distance": "eye",
+      "zoom": "tam rapor",
+      "pxPerMm": 4.32,
+      "stripePct": 0.32,
+      "stripePeriodMm": 1.33,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          192,
+          2368
+        ],
+        "ms": 12.299999237060547,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "bendix-v6",
+      "distance": "eye",
+      "zoom": "10 mm",
+      "pxPerMm": 64,
+      "stripePct": 0.82,
+      "stripePeriodMm": 10,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          768,
+          9472
+        ],
+        "ms": 14.899999618530273,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "bendix-v6",
+      "distance": "eye",
+      "zoom": "5 mm",
+      "pxPerMm": 128,
+      "stripePct": 0.61,
+      "stripePeriodMm": 1,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          768,
+          9472
+        ],
+        "ms": 17.40000057220459,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "bendix-v6",
+      "distance": "far",
+      "zoom": "tam rapor",
+      "pxPerMm": 4.32,
+      "stripePct": 0.27,
+      "stripePeriodMm": 7.4,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          192,
+          2368
+        ],
+        "ms": 8.600000381469727,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "bendix-v6",
+      "distance": "far",
+      "zoom": "10 mm",
+      "pxPerMm": 64,
+      "stripePct": 0.82,
+      "stripePeriodMm": 10,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          192,
+          2368
+        ],
+        "ms": 19.699999809265137,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "bendix-v6",
+      "distance": "far",
+      "zoom": "5 mm",
+      "pxPerMm": 128,
+      "stripePct": 0.46,
+      "stripePeriodMm": 1.67,
+      "tile": {
+        "mm": [
+          12,
+          148
+        ],
+        "texels": [
+          192,
+          2368
+        ],
+        "ms": 17.5,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "demo": "bendix-v6",
+      "distance": "loupe",
+      "zoom": "15 px/mm",
+      "pxPerMm": 15,
+      "stripePct": 0.53,
+      "stripePeriodMm": 21.33
+    }
+  ],
+  "bendixFarColor": {
+    "meanLinear": [
+      0.356,
+      0.369,
+      0.341
+    ],
+    "weftMeanLinear": [
+      0.275,
+      0.327,
+      0.32
+    ],
+    "warpLinear": [
+      0.799,
+      0.723,
+      0.578
+    ],
+    "distToWeft": 0.094,
+    "distToWarp": 0.614,
+    "weftDominant": true
+  },
+  "bendixStripeCauses": {
+    "pxPerMm": 7.56,
+    "warpRepeat": 4,
+    "eski: sapma döşemeye pişmiş (12 mm periyot)": {
+      "stripePct": 0.37,
+      "periodMm": 6.05
+    },
+    "moiré: pişirme 8 texel/mm (iplik < 3 texel)": {
+      "stripePct": 0.4,
+      "periodMm": 28.22
+    },
+    "yeni: sapma döşemeden bağımsız + ≥ 3 texel / iplik": {
+      "stripePct": 0.38,
+      "periodMm": 28.22
+    }
+  }
+}

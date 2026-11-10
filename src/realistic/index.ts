@@ -4,7 +4,7 @@
  *   const { isRealisticSupported, createRealisticRenderer } = await import('./realistic');
  */
 export { createRealisticRenderer, lightDirection } from './renderer';
-export { isRealisticSupported } from './gl/context';
+export { isRealisticSupported, releaseContextWhenDetached } from './gl/context';
 export { packFabric, validateInput, hexToRgba, DEFAULT_TWIST_PER_M } from './pack';
 export type { PackedFabric } from './pack';
 export { pitchMm, pitchPx, pixelToMm, cellAt, flatColorAt } from './scale';
@@ -17,6 +17,18 @@ export { parsePreset, serializePreset, applySurfaces, applyPresetToView, findYar
 export { scaleFromPoints, photoRect, simView, zoomAt } from './calibration';
 export type { CalibView, Point } from './calibration';
 export type { RealisticPreset, YarnSurface } from './presets';
+export {
+  VIEW_DISTANCE_MM,
+  resolvableMm,
+  filterFwhmMm,
+  effectiveFwhmMm,
+  useFilteredPath,
+  filteredBakeDensity,
+  cssPxPerMm,
+  CARD_WIDTH_MM,
+  CSS_DPI,
+} from './viewDistance';
+export type { ViewDistance } from './viewDistance';
 export { PERF_LADDER, FRAME_BUDGET_MS, initialAutoQuality, stepAutoQuality, fixedLevel } from './perf';
 export type { PerfLevel, AutoQualityState } from './perf';
 export type * from './types';

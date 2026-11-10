@@ -19,6 +19,7 @@ import {
   fixedLevel,
   initialAutoQuality,
   isRealisticSupported,
+  releaseContextWhenDetached,
   PERF_LADDER,
   stepAutoQuality,
   type AutoQualityState,
@@ -28,6 +29,10 @@ import {
 import { fabricInputFromSpec } from '../realistic/adapters/fromSpec';
 
 export type QualityPref = Quality | 'auto';
+/** Gerçekçi görünümde boşlukların zemini (fix-v3): koyu gri, siyah, arkadan ışık (perde ışık geçirgenliği). */
+export type BackgroundPref = 'darkgray' | 'black' | 'backlight' | 'light';
+/** Bakış mesafesi (realistic/viewDistance.ts): Göz 40 cm, Uzak 2 m (fiziksel ölçek + ön filtre), Lup. */
+export type DistancePref = 'eye' | 'far' | 'loupe';
 
 export interface RealisticLayerProps {
   spec: FabricSpec;
@@ -38,6 +43,14 @@ export interface RealisticLayerProps {
   pxPerMm: number;
   loupe: boolean;
   quality: QualityPref;
+  /** Boşluk zemini (tam gerçekçi lup); verilmezse koyu gri. */
+  background?: BackgroundPref;
+  /** Uzak görünümün zemini (ölçek küçükken; Lup modunda da). Verilmezse renderer: Göz / Uzak'ta `background`, Lup'ta açık. */
+  farBackground?: BackgroundPref;
+  /** Büyüteç dairesi: ölçeğe bakmadan tam gerçekçi lup (uzak görünümde imleç altı). */
+  forceReal?: boolean;
+  /** Bakış mesafesi; verilmezse lup. Göz / Uzak'ta pxPerMm çağıranın fiziksel ölçeğidir. */
+  distance?: DistancePref;
   onState: (s: { ok: boolean; text: string }) => void;
   /** Verilmezse dokunmatik (pointer: coarse) cihazda 'mobile', aksi hâlde 'desktop'. */
   profile?: 'desktop' | 'mobile';
@@ -61,6 +74,9 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     [p.profile],
   );
   const [moving, setMoving] = useState(false);
+  // Bağlam kaybı geçici olabilir: 3 s içinde geri gelmezse sessizce kapatılır; geri gelince yeniden çizilir
+  const lostTimer = useRef(0);
+  const [redraw, setRedraw] = useState(0);
   const [preparing, setPreparing] = useState(false);
   const lastViewChange = useRef(0);
 
@@ -76,14 +92,23 @@ export default function RealisticLayer(p: RealisticLayerProps) {
       rendererRef.current = createRealisticRenderer(c, {
         measure: 'auto',
         profile,
-        onContextLost: () => onStateRef.current({ ok: false, text: '' }),
+        onContextLost: () => {
+          window.clearTimeout(lostTimer.current);
+          lostTimer.current = window.setTimeout(() => onStateRef.current({ ok: false, text: '' }), 3000);
+        },
+        onContextRestored: () => {
+          window.clearTimeout(lostTimer.current);
+          setRedraw((n) => n + 1);
+        },
       });
       setReady(true);
     } catch {
       onStateRef.current({ ok: false, text: '' });
     }
     return () => {
+      window.clearTimeout(lostTimer.current);
       rendererRef.current?.dispose();
+      releaseContextWhenDetached(c);
       rendererRef.current = null;
       setReady(false);
     };
@@ -97,7 +122,9 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     }
   }, [p.spec, p.seed, p.densities]);
 
-  const level = p.quality === 'auto' ? PERF_LADDER[auto.level] : fixedLevel(p.quality);
+  // Otomatik kalite yalnız aktif gezinmede geçici olarak düşer; durağan çizim her zaman merdivenin tepesinde
+  // (yüksek, tam çözünürlük) → Tezgah ve Mamul panelleri durağanken aynı seviyede.
+  const level = p.quality === 'auto' ? PERF_LADDER[moving ? auto.level : 0] : fixedLevel(p.quality);
   const { left, top, width, height } = p.rect;
 
   // Masaüstü ilerleyen kalite: ardışık görünüm değişiminde yarım çözünürlük, durunca tam
@@ -106,12 +133,18 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     const now = performance.now();
     if (now - lastViewChange.current < MOTION_MS) setMoving(true);
     lastViewChange.current = now;
-    const t = setTimeout(() => setMoving(false), MOTION_MS + 10);
+    const t = setTimeout(() => {
+      setMoving(false);
+      // gezinme bitti: oto basamak sıfırlanır (bir sonraki gezinme yeniden ölçer)
+      setAuto((a) => (a.level === 0 && a.avgMs === null ? a : initialAutoQuality()));
+    }, MOTION_MS + 10);
     return () => clearTimeout(t);
   }, [profile, p.originMm[0], p.originMm[1], p.pxPerMm]);
 
   // Mobil: desen / kalite değişince döşeme yeniden pişer → önce göstergeyi boya, sonra render
-  const bakeKey = `${level.quality}`;
+  const background = p.background ?? 'darkgray';
+  const distance = p.distance ?? 'loupe';
+  const bakeKey = `${level.quality}|${background}|${distance}`;
   const bakedFor = useRef<{ input: unknown; key: string } | null>(null);
   const needsBake = profile === 'mobile' && (!bakedFor.current || bakedFor.current.input !== input || bakedFor.current.key !== bakeKey);
   useEffect(() => {
@@ -139,6 +172,9 @@ export default function RealisticLayer(p: RealisticLayerProps) {
           offsetCm: [p.originMm[0] / 10, p.originMm[1] / 10],
           light: LIGHT,
           quality: level.quality,
+          tuning: { background, ...(p.farBackground ? { farBackground: p.farBackground } : {}), ...(p.forceReal ? { forceReal: true } : {}) },
+          distance,
+          navigating: moving,
         });
       } catch {
         onStateRef.current({ ok: false, text: '' });
@@ -151,10 +187,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
       // Ölçüm (timer sonucu bir iki kare sonra hazır olur)
       measureTimer = window.setTimeout(() => {
         const st = r.stats();
-        if (st.contextLost) {
-          onStateRef.current({ ok: false, text: '' });
-          return;
-        }
+        if (st.contextLost) return; // geri gelmesi bekleniyor (onContextLost zamanlayıcısı kapatır)
         const ms = st.gpuMs;
         const how = st.method === 'timer' ? 'GPU' : st.method === 'sync' ? 'kaba' : '';
         const lvl = scaleNow < 1 ? `${QUALITY_LABEL[level.quality]} ×${scaleNow}` : QUALITY_LABEL[level.quality];
@@ -164,7 +197,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
           text: `Gerçekçi${p.loupe ? ' büyüteç' : ''}${profile === 'mobile' ? ' (mobil)' : ''} · ${p.quality === 'auto' ? 'oto ' : ''}${lvl}${ms !== null ? ` · ${ms.toFixed(1)} ms ${how}` : ''}${bake}`,
         });
         // Hareket sırasındaki yarım çözünürlük kareleri otomatik kaliteyi düşürmesin
-        if (p.quality === 'auto' && ms !== null && !moving) {
+        if (p.quality === 'auto' && ms !== null && moving) {
           setAuto((a) => {
             const n = stepAutoQuality(a, ms);
             return n.level === a.level && n.avgMs === a.avgMs ? a : n;
@@ -183,7 +216,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     };
     // level nesnesi her render'da yenidir; içeriği quality + scale
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile]);
+  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile, background, p.farBackground, p.forceReal, distance, redraw]);
 
   const hidden = width < 2 || height < 2;
   return (

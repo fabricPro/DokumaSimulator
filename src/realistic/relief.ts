@@ -6,19 +6,25 @@
  * Yükseklik (prototip Hw/Hf): krepaj + r·profil·(0.82 + 0.18·kat + 0.02·ince lif + 0.03·lif gürültüsü).
  */
 import { DEFAULT_TWIST_PER_M } from './pack';
+import { diameterMm, toTex } from './yarn';
 
 /**
- * Kat (ply) oluk aralığı, iplik ekseni boyunca: k·d·(T₀/T).
- * VARSAYIM (kullanıcı kararı, kalibre edilecek): k = 1.1, T₀ = 700 tur/m. Fiziksel sarmal formülü 1/(2T)
- * 700 tur/m'de ≈3.4·d verir ve hedef görüntüdeki sık bükümü üretmez; prototip ≈1.1·d kullanır.
- * Göreli model: fixture'da (700 tur/m) hedefle aynı, büküm iki katına çıkınca aralık yarıya iner.
+ * Kat (ply) oluk aralığı, iplik ekseni boyunca (fix-v3, fiziksel + kalibrasyon):
+ *   büküm açısı tan α = π·d·T (surface.ts twistAngle), bir turun adımı π·d / tan α (= 1/T),
+ *   oluk aralığı = K · π·d / (kat · tan α) = K / (kat · T).
+ * VARSAYIM (kullanıcı kararı, kalibre edilecek): K, bantlı fixture'da (Ne 20/1, d ≈ 0.21 mm, 700 tur/m, 2 kat)
+ * fix-v2'nin hedefle eşlenen 1.1·d aralığını verecek şekilde sabit: K = 1.1·d_fix·2·0.7 ≈ 0.32. Saf fiziksel
+ * sarmal (K = 1) aynı iplikte ≈3.4·d verir; hedef görüntüdeki sık oluğu üretmez.
  */
-export const PLY_SPACING_K = 1.1;
-export const PLY_T0_PER_M = 700;
-export function plySpacingMm(diameterMm: number, twistPerM: number = DEFAULT_TWIST_PER_M): number {
+export const PLY_FIXTURE_D_MM = diameterMm(toTex(20, 'Ne'));
+export const DEFAULT_PLIES = 2;
+export const PLY_K = 1.1 * PLY_FIXTURE_D_MM * DEFAULT_PLIES * 0.7;
+export function plySpacingMm(diameterMm: number, twistPerM: number = DEFAULT_TWIST_PER_M, plies = DEFAULT_PLIES): number {
   if (!(diameterMm > 0)) throw new Error('Çap pozitif olmalı.');
   if (!(twistPerM > 0)) return Infinity;
-  return PLY_SPACING_K * diameterMm * (PLY_T0_PER_M / twistPerM);
+  const T = twistPerM / 1000;
+  const tanA = Math.PI * diameterMm * T;
+  return (PLY_K * Math.PI * diameterMm) / (Math.max(1, plies) * tanA);
 }
 
 /**

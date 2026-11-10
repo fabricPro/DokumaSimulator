@@ -1,0 +1,320 @@
+{
+  "gpu": "ANGLE (Intel, Intel(R) HD Graphics 4600 (0x00000412) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "size": 1024,
+  "budgetMs": {
+    "navigation": 4
+  },
+  "note": "gezinme karesi (döşeme önbellekten), duvar saati render + 1 piksel okuma; layered=false → RendererOptions.singleLayer (alt katman + kenar yumuşatma kapalı); extraMs = katmanlı çizimin ek maliyeti",
+  "layeredOverhead": [
+    {
+      "file": "acik-coklu-atki",
+      "highLayeredMs": 15.9,
+      "highSingleMs": 16.6,
+      "extraMs": -0.7
+    },
+    {
+      "file": "banded-warp-detail",
+      "highLayeredMs": 19.4,
+      "highSingleMs": 17.4,
+      "extraMs": 2
+    },
+    {
+      "file": "plain",
+      "highLayeredMs": 17.7,
+      "highSingleMs": 16,
+      "extraMs": 1.7
+    }
+  ],
+  "rows": [
+    {
+      "layered": true,
+      "quality": "medium",
+      "file": "acik-coklu-atki",
+      "method": "sync-wall",
+      "frameMedianMs": 16.6,
+      "frameWorstMs": 1022.3,
+      "bakeMs": 19.6,
+      "tile": {
+        "mm": [
+          15,
+          18.461538461538463
+        ],
+        "texels": [
+          384,
+          473
+        ],
+        "ms": 19.600000381469727,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "layered": true,
+      "quality": "medium",
+      "file": "banded-warp-detail",
+      "method": "sync-wall",
+      "frameMedianMs": 16.1,
+      "frameWorstMs": 20.3,
+      "bakeMs": 46.3,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          4016,
+          800
+        ],
+        "ms": 46.29999923706055,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "layered": true,
+      "quality": "medium",
+      "file": "plain",
+      "method": "sync-wall",
+      "frameMedianMs": 16.9,
+      "frameWorstMs": 206.9,
+      "bakeMs": 6.5,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 6.5,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "layered": true,
+      "quality": "high",
+      "file": "acik-coklu-atki",
+      "method": "sync-wall",
+      "frameMedianMs": 15.9,
+      "frameWorstMs": 17.6,
+      "bakeMs": 3,
+      "tile": {
+        "mm": [
+          15,
+          18.461538461538463
+        ],
+        "texels": [
+          384,
+          473
+        ],
+        "ms": 3,
+        "hairStrokes": 1367,
+        "hairMs": 32.69999980926514
+      }
+    },
+    {
+      "layered": true,
+      "quality": "high",
+      "file": "banded-warp-detail",
+      "method": "sync-wall",
+      "frameMedianMs": 19.4,
+      "frameWorstMs": 23,
+      "bakeMs": 16.6,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          4016,
+          800
+        ],
+        "ms": 16.59999942779541,
+        "hairStrokes": 59306,
+        "hairMs": 1097.1000003814697
+      }
+    },
+    {
+      "layered": true,
+      "quality": "high",
+      "file": "plain",
+      "method": "sync-wall",
+      "frameMedianMs": 17.7,
+      "frameWorstMs": 20.2,
+      "bakeMs": 4.1,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 4.100000381469727,
+        "hairStrokes": 3065,
+        "hairMs": 62.79999923706055
+      }
+    },
+    {
+      "layered": false,
+      "quality": "medium",
+      "file": "acik-coklu-atki",
+      "method": "sync-wall",
+      "frameMedianMs": 15.5,
+      "frameWorstMs": 17.5,
+      "bakeMs": 2.1,
+      "tile": {
+        "mm": [
+          15,
+          18.461538461538463
+        ],
+        "texels": [
+          384,
+          473
+        ],
+        "ms": 2.09999942779541,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "layered": false,
+      "quality": "medium",
+      "file": "banded-warp-detail",
+      "method": "sync-wall",
+      "frameMedianMs": 17.7,
+      "frameWorstMs": 75.6,
+      "bakeMs": 18.7,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          4016,
+          800
+        ],
+        "ms": 18.699999809265137,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "layered": false,
+      "quality": "medium",
+      "file": "plain",
+      "method": "sync-wall",
+      "frameMedianMs": 17.5,
+      "frameWorstMs": 19.8,
+      "bakeMs": 3,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 3,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "layered": false,
+      "quality": "high",
+      "file": "acik-coklu-atki",
+      "method": "sync-wall",
+      "frameMedianMs": 16.6,
+      "frameWorstMs": 671.4,
+      "bakeMs": 1.8,
+      "tile": {
+        "mm": [
+          15,
+          18.461538461538463
+        ],
+        "texels": [
+          384,
+          473
+        ],
+        "ms": 1.7999992370605469,
+        "hairStrokes": 1367,
+        "hairMs": 32.60000038146973
+      }
+    },
+    {
+      "layered": false,
+      "quality": "high",
+      "file": "banded-warp-detail",
+      "method": "sync-wall",
+      "frameMedianMs": 17.4,
+      "frameWorstMs": 49.4,
+      "bakeMs": 23,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          4016,
+          800
+        ],
+        "ms": 23,
+        "hairStrokes": 59306,
+        "hairMs": 1614.7999992370605
+      }
+    },
+    {
+      "layered": false,
+      "quality": "high",
+      "file": "plain",
+      "method": "sync-wall",
+      "frameMedianMs": 16,
+      "frameWorstMs": 39,
+      "bakeMs": 8.2,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 8.199999809265137,
+        "hairStrokes": 3065,
+        "hairMs": 53.10000038146973
+      }
+    }
+  ],
+  "vsFixV3": {
+    "note": "Aynı GPU ve oturumda fix-v3 (HEAD 3c9fed5, geçici kopya) ↔ fix-v4, 1024², yüksek kalite, gezinme karesi; duvar saati render + 1 piksel okuma, 40 karenin medyanı (iki ölçümün küçüğü)",
+    "rows": [
+      {
+        "file": "acik-coklu-atki",
+        "quality": "high",
+        "fixV3Ms": 16.4,
+        "fixV4Ms": 16.3,
+        "ratio": 0.99
+      },
+      {
+        "file": "banded-warp-detail",
+        "quality": "high",
+        "fixV3Ms": 18.2,
+        "fixV4Ms": 19,
+        "ratio": 1.04
+      },
+      {
+        "file": "plain",
+        "quality": "high",
+        "fixV3Ms": 17,
+        "fixV4Ms": 18.1,
+        "ratio": 1.06
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ReedPanel } from './ReedPanel';
 import { WeftReportField } from './WeftReportField';
+import { bukumTurM, sonucNumara, type IplikTanimi, type IplikTip, type Parlaklik } from '../adapters/iplik';
 import {
   DEFAULT_RELAX,
   MAX_SLOTS,
@@ -95,10 +96,15 @@ function SlotCard({
   slot,
   onChange,
   onRemove,
+  yarn,
+  onYarn,
 }: {
   slot: YarnSlot;
   onChange: (s: YarnSlot) => void;
   onRemove?: () => void;
+  /** Slota bağlı iplik tanımı (.atki.json desenleri); varsa tip / kat / parlaklık / tüylülük / büküm düzenlenir. */
+  yarn?: IplikTanimi;
+  onYarn?: (y: IplikTanimi) => void;
 }) {
   const [open, setOpen] = useState(false);
   let info = '';
@@ -137,7 +143,8 @@ function SlotCard({
           </button>
         )}
       </div>
-      <div className="slot-info">{info}</div>
+      <div className="slot-info">{yarn ? `${yarn.ad} · ${info}` : info}</div>
+      {open && yarn && onYarn && <YarnFields yarn={yarn} onYarn={onYarn} />}
       {open && (
         <div className="slot-adv">
           <NumberField
@@ -158,6 +165,82 @@ function SlotCard({
       )}
     </div>
   );
+}
+
+const TIPLER: Array<[IplikTip, string]> = [
+  ['egrilmis', 'Eğrilmiş'],
+  ['filament', 'Filament'],
+  ['teksture', 'Tekstüre'],
+  ['yassi', 'Yassı bant'],
+];
+const PARLAKLIKLAR: Array<[Parlaklik, string]> = [
+  ['mat', 'Mat'],
+  ['yari-mat', 'Yarı mat'],
+  ['parlak', 'Parlak'],
+];
+
+/** İplik tanımı alanları (tek kat numarası, kat, tip, parlaklık, tüylülük, büküm). */
+function YarnFields({ yarn, onYarn }: { yarn: IplikTanimi; onYarn: (y: IplikTanimi) => void }) {
+  const level = typeof yarn.bukum === 'number' ? 'ozel' : yarn.bukum;
+  return (
+    <div className="slot-adv">
+      <NumberField label="Tek kat numara" value={yarn.numara} step={0.5} min={0.1} onChange={(v) => v > 0 && onYarn({ ...yarn, numara: v })} />
+      <NumberField label="Kat sayısı" value={yarn.katSayisi} step={1} min={1} onChange={(v) => onYarn({ ...yarn, katSayisi: Math.max(1, Math.round(v)) })} />
+      <label className="numfield">
+        <span>Tip</span>
+        <select value={yarn.tip} onChange={(e) => onYarn({ ...yarn, tip: e.target.value as IplikTip })}>
+          {TIPLER.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="numfield">
+        <span>Parlaklık</span>
+        <select value={yarn.parlaklik} onChange={(e) => onYarn({ ...yarn, parlaklik: e.target.value as Parlaklik })}>
+          {PARLAKLIKLAR.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </label>
+      <NumberField label="Tüylülük (0–1)" value={yarn.tuyluluk} step={0.05} min={0} onChange={(v) => onYarn({ ...yarn, tuyluluk: Math.min(1, Math.max(0, v)) })} />
+      <label className="numfield">
+        <span>Büküm</span>
+        <select
+          value={level}
+          onChange={(e) => {
+            const v = e.target.value;
+            onYarn({ ...yarn, bukum: v === 'ozel' ? Math.round(bukumTurM(yarn)) : (v as 'az' | 'orta' | 'yuksek') });
+          }}
+        >
+          <option value="az">Az</option>
+          <option value="orta">Orta</option>
+          <option value="yuksek">Yüksek</option>
+          <option value="ozel">Tur/m</option>
+        </select>
+      </label>
+      {typeof yarn.bukum === 'number' ? (
+        <NumberField label="Büküm (tur/m)" value={yarn.bukum} step={10} min={0} onChange={(v) => onYarn({ ...yarn, bukum: Math.max(0, v) })} />
+      ) : (
+        <div className="slot-info">≈ {Math.round(bukumTurM(yarn))} tur/m</div>
+      )}
+    </div>
+  );
+}
+
+/** İplik tanımı değişince ona bağlı slotların numarası / sistemi aynalanır. */
+function withYarn(spec: FabricSpec, y: IplikTanimi): FabricSpec {
+  const mirror = (list: YarnSlot[]) =>
+    list.map((s) => (s.yarnId === y.id ? { ...s, count: sonucNumara(y.numara, y.katSayisi, y.birim), system: y.birim } : s));
+  return {
+    ...spec,
+    yarns: (spec.yarns ?? []).map((x) => (x.id === y.id ? y : x)),
+    warpSlots: mirror(spec.warpSlots),
+    weftSlots: mirror(spec.weftSlots),
+  };
 }
 
 /* ------------------------------ rapor dizisi ------------------------------ */
@@ -238,11 +321,15 @@ function SideSlots({
   slots,
   sequence,
   onChange,
+  yarns,
+  onYarn,
 }: {
   title: string;
   slots: YarnSlot[];
   sequence: number[];
   onChange: (slots: YarnSlot[], sequence: number[]) => void;
+  yarns?: IplikTanimi[];
+  onYarn?: (y: IplikTanimi) => void;
 }) {
   const rename = (list: YarnSlot[]) => list.map((s, i) => ({ ...s, name: SLOT_NAMES[i] }));
   return (
@@ -253,6 +340,8 @@ function SideSlots({
           key={i}
           slot={s}
           onChange={(ns) => onChange(slots.map((x, k) => (k === i ? ns : x)), sequence)}
+          yarn={s.yarnId ? yarns?.find((y) => y.id === s.yarnId) : undefined}
+          onYarn={onYarn}
           onRemove={slots.length > 1 ? () => onChange(rename(slots.filter((_, k) => k !== i)), remapSequence(sequence, i)) : undefined}
         />
       ))}
@@ -279,12 +368,16 @@ export function YarnPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s: 
         slots={spec.warpSlots}
         sequence={spec.warpSequence}
         onChange={(warpSlots, warpSequence) => onChange({ ...spec, warpSlots, warpSequence })}
+        yarns={spec.yarns}
+        onYarn={(y) => onChange(withYarn(spec, y))}
       />
       <SideSlots
         title="Atkı (alttan)"
         slots={spec.weftSlots}
         sequence={spec.weftSequence}
         onChange={(weftSlots, weftSequence) => onChange({ ...spec, weftSlots, weftSequence })}
+        yarns={spec.yarns}
+        onYarn={(y) => onChange(withYarn(spec, y))}
       />
     </section>
   );

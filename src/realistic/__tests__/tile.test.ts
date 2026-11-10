@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bakeDensity, lcm, MIN_TILE_MM, snapFreq, snapPeriod, tileFor } from '../tile';
-import { generateHair, HAIR_LEN_MAX, HAIR_LEN_MIN } from '../hair';
+import { generateHair, HAIR_ALPHA_MAX, HAIR_ALPHA_MIN, HAIR_GAP_ALPHA, HAIR_LEN_MAX, HAIR_LEN_MIN } from '../hair';
+import { diameterMm, toTex } from '../yarn';
 import { geometryAt, geometryParamsFromInput } from '../geometry';
 import { expandBandedFixture, inputFromRows, type BandedFixture } from '../fixtures';
 import { plain, twill22 } from '../../presets/weaves';
@@ -49,7 +50,7 @@ describe('tüylülük lifleri', () => {
   const t = tileFor(bandedInput);
   const hairs = generateHair(bandedInput, t);
   const pw = 10 / bandedInput.density.warpPerCm;
-  it('deterministik; yoğunluk tüylülükle orantılı (0.35 → aralık² başına ~5, boşluk hariç)', () => {
+  it('deterministik; yoğunluk tüylülükle orantılı (0.35 → aralık² başına ≤ 5, boşluk ve zemine taşan hariç)', () => {
     expect(generateHair(bandedInput, t)).toEqual(hairs);
     const perPitch2 = hairs.length / ((t.mm[0] * t.mm[1]) / (pw * pw));
     expect(perPitch2).toBeGreaterThan(3);
@@ -60,7 +61,8 @@ describe('tüylülük lifleri', () => {
     expect(generateHair(bandedInput, t, 0)).toEqual([]);
     expect(generateHair({ ...bandedInput, seed: 2 }, t)).not.toEqual(hairs);
   });
-  it('kök iplik üstünde, döşeme içinde; uzunluk 0.25..0.9 aralık; açı eksen ±', () => {
+  it('kök iplik üstünde, döşeme içinde; uzunluk 0.1..0.3·d; soluk; açı eksen ±', () => {
+    const dRoot = diameterMm(toTex(20, 'Ne'));
     const g = geometryParamsFromInput(bandedInput, 1, 0, 'v2');
     let devSum = 0;
     for (const h of hairs.slice(0, 2000)) {
@@ -70,10 +72,10 @@ describe('tüylülük lifleri', () => {
       expect(geometryAt(x, y, g).axis).toBe(h.axis);
       let len = 0;
       for (let k = 1; k < h.pts.length; k++) len += Math.hypot(h.pts[k][0] - h.pts[k - 1][0], h.pts[k][1] - h.pts[k - 1][1]);
-      expect(len).toBeGreaterThanOrEqual(HAIR_LEN_MIN * pw - 1e-9);
-      expect(len).toBeLessThanOrEqual(HAIR_LEN_MAX * pw + 1e-9);
-      expect(h.alpha).toBeGreaterThanOrEqual(60 / 255);
-      expect(h.alpha).toBeLessThanOrEqual(140 / 255);
+      expect(len).toBeGreaterThanOrEqual(HAIR_LEN_MIN * dRoot - 1e-9);
+      expect(len).toBeLessThanOrEqual(HAIR_LEN_MAX * dRoot + 1e-9);
+      expect(h.alpha).toBeGreaterThanOrEqual(HAIR_ALPHA_MIN * HAIR_GAP_ALPHA - 1e-9);
+      expect(h.alpha).toBeLessThanOrEqual(HAIR_ALPHA_MAX + 1e-9);
       const dx = h.pts[1][0] - x;
       const dy = h.pts[1][1] - y;
       const ang = Math.atan2(dy, dx);
@@ -82,10 +84,10 @@ describe('tüylülük lifleri', () => {
       d = Math.min(d, Math.PI - d);
       devSum += d;
     }
-    // |N(0, √(0.5² + 0.25²))| ortalaması ≈ 0.45 rad
+    // |N(0, √(0.25² + 0.15²))| ortalaması ≈ 0.23 rad (iplik yönünde)
     const meanDev = devSum / Math.min(2000, hairs.length);
-    expect(meanDev).toBeGreaterThan(0.3);
-    expect(meanDev).toBeLessThan(0.6);
+    expect(meanDev).toBeGreaterThan(0.15);
+    expect(meanDev).toBeLessThan(0.32);
   });
   it('kök rengi kök ipliğin rengi', () => {
     const colors = new Set(hairs.map((h) => h.color.toUpperCase()));

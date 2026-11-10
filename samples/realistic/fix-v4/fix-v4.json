@@ -1,0 +1,33 @@
+{
+  "light": {
+    "azimuthDeg": 135,
+    "elevationDeg": 45
+  },
+  "openness": {
+    "realisticPct": 48.3,
+    "metricPct": 45.7
+  },
+  "perf": {
+    "gpu": "ANGLE (Intel, Intel(R) HD Graphics 4600 (0x00000412) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "layeredOverhead": [
+      {
+        "file": "acik-coklu-atki",
+        "highLayeredMs": 15.9,
+        "highSingleMs": 16.6,
+        "extraMs": -0.7
+      },
+      {
+        "file": "banded-warp-detail",
+        "highLayeredMs": 19.4,
+        "highSingleMs": 17.4,
+        "extraMs": 2
+      },
+      {
+        "file": "plain",
+        "highLayeredMs": 17.7,
+        "highSingleMs": 16,
+        "extraMs": 1.7
+      }
+    ]
+  }
+}

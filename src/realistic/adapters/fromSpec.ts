@@ -13,6 +13,7 @@ import type { FabricSpec } from '../../render-engine/types';
 import { effectiveLoomWarpDensity, effectiveLoomWeftDensity } from '../../render-engine/physical/metrics';
 import { finishedDensities } from '../../render-engine/physical/shrinkage';
 import type { FabricInput, Luster, YarnType } from '../types';
+import { iplikToYarnType } from '../../adapters/iplik';
 
 export interface SurfaceDefaults {
   luster: Luster;
@@ -48,7 +49,16 @@ export function fabricInputFromSpec(
   const warps = spec.weave[0].length;
   const data = new Uint8Array(warps * wefts);
   spec.weave.forEach((row, r) => row.forEach((v, c) => (data[r * warps + c] = v ? 1 : 0)));
-  const toType = (s: FabricSpec['warpSlots'][number]): YarnType => ({
+  // Slot bir iplik tanımına bağlıysa (.atki.json demoları) tip, kat, parlaklık, tüylülük ve büküm ondan
+  const linked = (s: FabricSpec['warpSlots'][number]) => (s.yarnId ? spec.yarns?.find((y) => y.id === s.yarnId) : undefined);
+  const toType = (s: FabricSpec['warpSlots'][number]): YarnType => {
+    const y = linked(s);
+    if (!y) return toTypeLegacy(s);
+    // Slot numarası / sistemi kullanıcı panelden değiştirmiş olabilir: sonuç numara slottan, geri kalan tanımdan
+    const t = iplikToYarnType(y);
+    return { ...t, count: s.count, unit: s.system, twist: s.twist, ...(s.yarnDensity ? { yarnDensity: s.yarnDensity } : {}) };
+  };
+  const toTypeLegacy = (s: FabricSpec['warpSlots'][number]): YarnType => ({
     count: s.count,
     unit: s.system,
     twist: s.twist,

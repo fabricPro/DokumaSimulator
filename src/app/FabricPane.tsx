@@ -4,7 +4,9 @@ import { DENT_BAND, LINK_BAND, drawReedStrip, type ReedStripInfo } from './reedS
 export type { ReedStripInfo } from './reedStrip';
 import type { PhysicalInfo } from '../render-engine/worker';
 import { imageToCanvas, RenderClient } from './renderClient';
-import type { QualityPref } from './RealisticLayer';
+import type { BackgroundPref, DistancePref, QualityPref } from './RealisticLayer';
+import { MAGNIFIER_MIN_YARN_PX, meanDiameter, realWeight } from '../realistic/viewDistance';
+import { diameterMm, toTex } from '../realistic/yarn';
 
 /** Gerçekçi katman ayrı parça: yalnız "Gerçekçi" açılınca yüklenir (gerçekçi modülle birlikte). */
 const RealisticLayer = lazy(() => import('./RealisticLayer'));
@@ -19,6 +21,11 @@ export const LOUPE_ZOOM = 4;
 
 export interface RealisticOptions {
   quality: QualityPref;
+  background: BackgroundPref;
+  /** Uzak görünümün zemini (Lup modunda da Göz zemini; kullanıcı seçtiyse onun seçimi). */
+  farBackground: BackgroundPref;
+  /** Bakış seçimi: uzak görünümün filtresi (Göz / Uzak) ve yakın görünüm zemini; geçiş ölçeğe bağlı otomatik. */
+  distance: DistancePref;
   /** 'finished': mamul paneli (ortalama mamul sıklığı). */
   densities: 'loom' | 'finished';
   /** Destek yok / bağlam kaybı: uygulama düğmeyi kapatır, CPU render sürer. */
@@ -77,7 +84,8 @@ interface Props {
 }
 
 const FULL_DELAY_MS = 220;
-export const MIN_PPM = 15;
+/** En uzak zoom: 2 px/mm (≈ 30 cm'lik rapor tek panelde; "Gerçek boyut" ön ayarı ~3.8 px/mm bunun içinde). */
+export const MIN_PPM = 2;
 export const MAX_PPM = 600;
 const STRIP_PX = 6;
 
@@ -354,9 +362,22 @@ export function FabricPane({
   }, [onViewChange]);
 
   const drag = useRef<{ x: number; y: number; x0: number; y0: number } | null>(null);
+  // Büyüteç katmanı (ikinci WebGL bağlamı) ilk kullanıldığında kurulur, sonra bağlı kalır
+  const magEver = useRef(false);
 
   // Gerçekçi katman yerleşimi: paint() ile aynı ekran ↔ kumaş eşlemesi
-  let layer: null | { rect: { left: number; top: number; width: number; height: number }; originMm: [number, number]; ppm: number; loupe: boolean } = null;
+  type LayerPlace = { rect: { left: number; top: number; width: number; height: number }; originMm: [number, number]; ppm: number; loupe: boolean };
+  let layer: LayerPlace | null = null;
+  let mag: LayerPlace | null = null;
+  // Ortalama iplik çapı (desenin çözgü / atkı slot çaplarının rapor dizisi boyunca ortalaması)
+  const slotD = (sl: FabricSpec['warpSlots'][number]) => diameterMm(toTex(sl.count, sl.system), sl.yarnDensity ?? 0.85);
+  const dMean = realistic
+    ? meanDiameter(
+        spec.warpSequence.map((k) => slotD(spec.warpSlots[Math.min(k, spec.warpSlots.length - 1)])),
+        spec.weftSequence.map((k) => slotD(spec.weftSlots[Math.min(k, spec.weftSlots.length - 1)])),
+      )
+    : 0;
+  const panelRealWeight = realWeight(dMean, view.pxPerMm);
   if (realistic) {
     const fabricW = size.w - leftW;
     const h = size.h - bandH;
@@ -366,19 +387,23 @@ export function FabricPane({
     const rectW = renderWindow ? Math.min(renderWindow.widthMm * ppm, fabricW) : fabricW;
     const rectH = renderWindow ? Math.min(renderWindow.heightMm * ppm, h) : h;
     const bottom = bandH + (renderWindow ? (h + rectH) / 2 : h);
-    if (ppm >= REALISTIC_FULL_PPM) {
-      layer = { rect: { left: leftW, top: bottom - rectH, width: rectW, height: rectH }, originMm: [ox, oy], ppm, loupe: false };
-    } else if (hover && hover.x >= leftW && hover.x <= leftW + rectW && hover.y >= bottom - rectH && hover.y <= bottom) {
-      const ppmL = ppm * LOUPE_ZOOM;
+    // Gerçekçi katman HER ölçekte tam panel: ortalama iplik çapına (px) göre uzak görünüm ↔ gerçekçi lup geçişi
+    // renderer'da otomatik (viewDistance.REAL_BLEND_*), her panel kendi px/mm'sine göre bağımsız karar verir.
+    layer = { rect: { left: leftW, top: bottom - rectH, width: rectW, height: rectH }, originMm: [ox, oy], ppm, loupe: false };
+    // Büyüteç dairesi: panel hâlâ uzak görünümdeyse (gerçekçi lup ağırlığı < 1) imleç altında, ikinci bir katman olarak
+    // HER ZAMAN tam gerçekçi lup (forceReal); ortalama iplik çapı en az MAGNIFIER_MIN_YARN_PX piksel olacak kadar büyütülür.
+    if (hover && panelRealWeight < 1 && hover.x >= leftW && hover.x <= leftW + rectW && hover.y >= bottom - rectH && hover.y <= bottom) {
+      const ppmL = Math.max(ppm * LOUPE_ZOOM, dMean > 0 ? MAGNIFIER_MIN_YARN_PX / dMean : 0);
       const X = ox + (hover.x - leftW) / ppm;
       const Y = oy + (bottom - hover.y) / ppm;
       const half = LOUPE_CSS / 2;
-      layer = {
+      mag = {
         rect: { left: hover.x - half, top: hover.y - half, width: LOUPE_CSS, height: LOUPE_CSS },
         originMm: [X - half / ppmL, Y - half / ppmL],
         ppm: ppmL,
         loupe: true,
       };
+      magEver.current = true; // ikinci bağlam bir kez kurulur, sonra bağlı kalır (her hover'da yeniden kurulmasın)
     }
   }
 
@@ -405,7 +430,6 @@ export function FabricPane({
         onPointerLeave={() => setHover(null)}
       />
       {realistic && (
-        // Büyüteç gizlenince katman bağlı kalır (WebGL bağlamı ve shader'lar yeniden kurulmasın)
         <Suspense fallback={null}>
           <RealisticLayer
             spec={spec}
@@ -414,15 +438,38 @@ export function FabricPane({
             rect={layer?.rect ?? { left: 0, top: 0, width: 0, height: 0 }}
             originMm={layer?.originMm ?? [0, 0]}
             pxPerMm={layer?.ppm ?? view.pxPerMm}
-            loupe={layer?.loupe ?? true}
+            loupe={false}
             quality={realistic.quality}
+            background={realistic.background}
+            farBackground={realistic.farBackground}
+            distance={realistic.distance}
             onState={(s) => {
               if (!s.ok) realistic.onUnavailable();
               setRealText(s.text);
             }}
           />
+          {(mag || magEver.current) && (
+            <RealisticLayer
+              spec={spec}
+              seed={seed}
+              densities={realistic.densities}
+              rect={mag?.rect ?? { left: 0, top: 0, width: 0, height: 0 }}
+              originMm={mag?.originMm ?? [0, 0]}
+              pxPerMm={mag?.ppm ?? view.pxPerMm}
+              loupe
+              forceReal
+              quality={realistic.quality}
+              background={realistic.background}
+              farBackground={realistic.farBackground}
+              distance={realistic.distance}
+              onState={(s) => {
+                if (!s.ok) realistic.onUnavailable();
+              }}
+            />
+          )}
         </Suspense>
       )}
+      {realistic && <ScaleBar pxPerMm={view.pxPerMm} left={leftW + 12} />}
       {title && (
         <div className="pane-title" style={{ top: bandH + 8, left: leftW + 8 }}>
           {title}
@@ -431,8 +478,23 @@ export function FabricPane({
       <div className="pane-status">
         {status}
         {realistic && realText && <span className="real-status"> · {realText}</span>}
-        {realistic && !layer && <span className="real-status"> · Gerçekçi: büyüteç için imleci kumaşın üstüne getirin</span>}
+        {realistic && panelRealWeight < 1 && !mag && <span className="real-status"> · uzak görünüm: büyüteç için imleci kumaşın üstüne getirin</span>}
       </div>
+    </div>
+  );
+}
+
+/** Ölçek çubuğu (gerçekçi katmanın üstünde; CPU tuvalindeki 1 mm çubuğu katman altında kalıyordu): ~80 px'e en yakın
+ *  1-2-5 dizisi mm uzunluk. Tüm bakış modlarında görünür. */
+function ScaleBar({ pxPerMm, left }: { pxPerMm: number; left: number }) {
+  const target = 80 / pxPerMm;
+  const p10 = 10 ** Math.floor(Math.log10(target));
+  const mm = [1, 2, 5, 10].map((k) => k * p10).reduce((b, c) => (Math.abs(c - target) < Math.abs(b - target) ? c : b));
+  const label = mm >= 1 ? `${+mm.toFixed(0)} mm` : `${+mm.toFixed(2)} mm`;
+  return (
+    <div className="scale-overlay" style={{ left }}>
+      <div className="scale-overlay-bar" style={{ width: mm * pxPerMm }} />
+      <span>{label}</span>
     </div>
   );
 }
