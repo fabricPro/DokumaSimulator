@@ -87,8 +87,12 @@ export function filteredBakeDensity(fwhmMm: number, pxPerMm: number, dMinMm: num
   return 2 ** Math.round(Math.log2(d));
 }
 
-/** Filtreli döşeme bütçesi: kenar ≤ MAX_TEXTURE_SIZE, toplam ≤ 8 M texel (sRGB + mip ≈ 43 MB). */
-export const FILTER_BAKE_MAX_TEXELS = 8 * 1024 * 1024;
+/**
+ * Pişirme texel bütçesi (her yol): kenar ≤ MAX_TEXTURE_SIZE ve toplam ≤ 2.5 M texel. Pişirme sırasındaki geçici bellek
+ * ≈ 50 bayt / texel (G-buffer 4 hedef × 8 B + ao + renk + mip + ön filtre) → ≈ 125 MB; eski 8 M texel (≈ 400 MB)
+ * iki bağlamda (Tezgah + Mamul) bellek yetersizliğine yol açabiliyordu. VARSAYIM; aşılırsa yoğunluk düşürülür.
+ */
+export const FILTER_BAKE_MAX_TEXELS = 2_500_000;
 
 /** En büyük iplik aralığı (mm). */
 export function maxPitchMm(input: FabricInput): number {
@@ -113,3 +117,19 @@ export const CARD_WIDTH_MM = 85.6;
  * Döşeme (12 mm, ~20–50 iplik) yerine 4096 iplik periyotlu: ≥ 20 döşeme, düzenli şerit tekrarı oluşmaz.
  */
 export const THREAD_VARIATION_PERIOD = 4096;
+
+/**
+ * LRU tahliyesi (saf, testli): `entries` en az kullanılandan en çok kullanılana sıralıdır. Toplam bayt `capBytes`'ı
+ * aşıyorsa `keep` dışındaki en eskiler sırayla tahliye listesine alınır (en az bir kayıt hep kalır).
+ */
+export function lruEvictions<T>(entries: Array<{ id: T; bytes: number }>, keep: T, capBytes: number): T[] {
+  let total = entries.reduce((a, e) => a + e.bytes, 0);
+  const out: T[] = [];
+  for (const e of entries) {
+    if (total <= capBytes || entries.length - out.length <= 1) break;
+    if (e.id === keep) continue;
+    out.push(e.id);
+    total -= e.bytes;
+  }
+  return out;
+}

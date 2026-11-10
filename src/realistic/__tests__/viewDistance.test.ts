@@ -5,7 +5,9 @@ import {
   effectiveFwhmMm,
   filterFwhmMm,
   filteredBakeDensity,
+  FILTER_BAKE_MAX_TEXELS,
   footprintMm,
+  lruEvictions,
   minYarnDiameterMm,
   resolvableMm,
   sigmaFromFwhm,
@@ -86,5 +88,25 @@ describe('iplik yayılması', () => {
   });
   it('sık dokuda çapraz sistem doluluğu boşluk kapatmayı artırır', () => {
     expect(spreadFactor(0.67, 1, 'spun', 2, 1, 0.84)).toBeGreaterThan(spreadFactor(0.67, 1, 'spun', 2, 1, 0.3));
+  });
+});
+
+describe('pişirme bellek bütçesi (siyah panel hatası)', () => {
+  it('texel bütçesi: Tezgah 12 × 148 mm döşemesi 2.5 M texeli aşmaz; 64 texel/mm (7.3 M) bütçeyi aşardı', () => {
+    const area = 12 * 148;
+    expect(area * 64 * 64).toBeGreaterThan(FILTER_BAKE_MAX_TEXELS);
+    const dFit = Math.sqrt(FILTER_BAKE_MAX_TEXELS / area);
+    expect(area * dFit * dFit).toBeLessThanOrEqual(FILTER_BAKE_MAX_TEXELS + 1);
+    expect(FILTER_BAKE_MAX_TEXELS * 50).toBeLessThan(160 * 1024 * 1024); // geçici bellek ≈ 50 bayt / texel
+  });
+  it('LRU tahliyesi: üst sınır aşılınca en eskiler gider, keep ve en az bir kayıt kalır', () => {
+    const e = (id: string, mb: number) => ({ id, bytes: mb * 1024 * 1024 });
+    expect(lruEvictions([e('a', 40), e('b', 40), e('c', 40)], 'c', 96 * 1024 * 1024)).toEqual(['a']);
+    expect(lruEvictions([e('a', 40), e('b', 40), e('c', 40)], 'c', 50 * 1024 * 1024)).toEqual(['a', 'b']);
+    expect(lruEvictions([e('a', 10), e('b', 10)], 'b', 96 * 1024 * 1024)).toEqual([]);
+    // tek dev kayıt: sınırı aşsa da tahliye edilmez (görüntü hâlâ gerekli)
+    expect(lruEvictions([e('a', 200)], 'a', 96 * 1024 * 1024)).toEqual([]);
+    // keep eski olsa bile tahliye edilmez
+    expect(lruEvictions([e('a', 60), e('b', 60)], 'a', 70 * 1024 * 1024)).toEqual(['b']);
   });
 });

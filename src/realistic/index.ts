@@ -4,7 +4,7 @@
  *   const { isRealisticSupported, createRealisticRenderer } = await import('./realistic');
  */
 export { createRealisticRenderer, lightDirection } from './renderer';
-export { isRealisticSupported } from './gl/context';
+export { isRealisticSupported, releaseContextWhenDetached } from './gl/context';
 export { packFabric, validateInput, hexToRgba, DEFAULT_TWIST_PER_M } from './pack';
 export type { PackedFabric } from './pack';
 export { pitchMm, pitchPx, pixelToMm, cellAt, flatColorAt } from './scale';

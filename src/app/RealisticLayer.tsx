@@ -19,6 +19,7 @@ import {
   fixedLevel,
   initialAutoQuality,
   isRealisticSupported,
+  releaseContextWhenDetached,
   PERF_LADDER,
   stepAutoQuality,
   type AutoQualityState,
@@ -69,6 +70,9 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     [p.profile],
   );
   const [moving, setMoving] = useState(false);
+  // Bağlam kaybı geçici olabilir: 3 s içinde geri gelmezse sessizce kapatılır; geri gelince yeniden çizilir
+  const lostTimer = useRef(0);
+  const [redraw, setRedraw] = useState(0);
   const [preparing, setPreparing] = useState(false);
   const lastViewChange = useRef(0);
 
@@ -84,14 +88,23 @@ export default function RealisticLayer(p: RealisticLayerProps) {
       rendererRef.current = createRealisticRenderer(c, {
         measure: 'auto',
         profile,
-        onContextLost: () => onStateRef.current({ ok: false, text: '' }),
+        onContextLost: () => {
+          window.clearTimeout(lostTimer.current);
+          lostTimer.current = window.setTimeout(() => onStateRef.current({ ok: false, text: '' }), 3000);
+        },
+        onContextRestored: () => {
+          window.clearTimeout(lostTimer.current);
+          setRedraw((n) => n + 1);
+        },
       });
       setReady(true);
     } catch {
       onStateRef.current({ ok: false, text: '' });
     }
     return () => {
+      window.clearTimeout(lostTimer.current);
       rendererRef.current?.dispose();
+      releaseContextWhenDetached(c);
       rendererRef.current = null;
       setReady(false);
     };
@@ -170,10 +183,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
       // Ölçüm (timer sonucu bir iki kare sonra hazır olur)
       measureTimer = window.setTimeout(() => {
         const st = r.stats();
-        if (st.contextLost) {
-          onStateRef.current({ ok: false, text: '' });
-          return;
-        }
+        if (st.contextLost) return; // geri gelmesi bekleniyor (onContextLost zamanlayıcısı kapatır)
         const ms = st.gpuMs;
         const how = st.method === 'timer' ? 'GPU' : st.method === 'sync' ? 'kaba' : '';
         const lvl = scaleNow < 1 ? `${QUALITY_LABEL[level.quality]} ×${scaleNow}` : QUALITY_LABEL[level.quality];
@@ -202,7 +212,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     };
     // level nesnesi her render'da yenidir; içeriği quality + scale
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile, background, distance]);
+  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile, background, distance, redraw]);
 
   const hidden = width < 2 || height < 2;
   return (

@@ -15,6 +15,7 @@ import { SLOT_NAMES } from '../render-engine';
 import {
   applySurfaces,
   createRealisticRenderer,
+  releaseContextWhenDetached,
   DEFAULT_TUNING,
   DEFAULT_TWIST_PER_M,
   isRealisticSupported,
@@ -131,14 +132,16 @@ export default function CalibrationView({ spec, seed }: { spec: FabricSpec; seed
   // Renderer yaşam döngüsü
   useEffect(() => {
     if (!supported || !canvasRef.current) return;
+    const cv = canvasRef.current;
     try {
-      rendererRef.current = createRealisticRenderer(canvasRef.current);
+      rendererRef.current = createRealisticRenderer(cv);
     } catch (e) {
       setMsg('WebGL2 başlatılamadı: ' + (e as Error).message);
     }
     return () => {
       rendererRef.current?.dispose();
       rendererRef.current = null;
+      releaseContextWhenDetached(cv);
     };
   }, [supported]);
 

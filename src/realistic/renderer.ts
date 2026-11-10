@@ -19,6 +19,7 @@ import {
   THREAD_VARIATION_PERIOD,
   filterFwhmMm,
   filteredBakeDensity,
+  lruEvictions,
   minYarnDiameterMm,
   sigmaFromFwhm,
   useFilteredPath,
@@ -118,7 +119,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     preserveDrawingBuffer: !!opts.preserveDrawingBuffer,
   }) as WebGL2RenderingContext | null;
   if (!gl) throw new Error('WebGL2 desteklenmiyor.');
-  const ext = hasRequiredExtensions(gl);
+  let ext = hasRequiredExtensions(gl);
   if (!ext.float && !ext.halfFloat) throw new Error('Float render hedefi desteklenmiyor.');
   const view = opts.debugView ?? 'lit';
   const profile = opts.profile ?? 'desktop';
@@ -128,16 +129,28 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
 
   // Faz 6: bağlam kaybı ve kare süresi ölçümü
   let contextLost = false;
-  const onLost = () => {
+  // preventDefault ŞART: yoksa tarayıcı bağlamı hiç geri getirmez ("webglcontextrestored" gelmez) ve panel sonsuza dek
+  // siyah kalır. Kayıpta kaynaklar geçersiz olur; geri gelince yeniden kurulur ve bir sonraki render yeniden pişirir.
+  const onLost = (e: Event) => {
+    e.preventDefault();
     contextLost = true;
+    console.warn('[gerçekçi] WebGL bağlamı kaybedildi (webglcontextlost); geri gelmesi bekleniyor.');
     opts.onContextLost?.();
   };
-  if ('addEventListener' in canvas) canvas.addEventListener('webglcontextlost', onLost as EventListener);
+  const onRestored = () => {
+    console.warn('[gerçekçi] WebGL bağlamı geri geldi; kaynaklar yeniden kuruluyor.');
+    resetAfterRestore();
+  };
+  if ('addEventListener' in canvas) {
+    canvas.addEventListener('webglcontextlost', onLost as EventListener);
+    canvas.addEventListener('webglcontextrestored', onRestored as EventListener);
+  }
   const wantMeasure = opts.measure ?? 'none';
-  const timerExt =
+  const getTimerExt = () =>
     wantMeasure === 'auto' || wantMeasure === 'timer'
       ? (gl.getExtension('EXT_disjoint_timer_query_webgl2') as { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null)
       : null;
+  let timerExt = getTimerExt();
   const method: RenderStats['method'] =
     wantMeasure === 'none' ? 'none' : timerExt ? 'timer' : wantMeasure === 'timer' ? 'none' : 'sync';
   let pendingQuery: WebGLQuery | null = null;
@@ -152,57 +165,84 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
   };
   const syncPixel = new Uint8Array(4);
 
-  const flatProg = createProgram(gl, FULLSCREEN_VS, FLAT_FS);
-  const gbProg = createProgram(gl, FULLSCREEN_VS, GBUFFER_FS);
-  const prevProg = createProgram(gl, FULLSCREEN_VS, PREVIEW_FS);
-  const occProg = createProgram(gl, FULLSCREEN_VS, OCCLUSION_FS);
-  const litProg = createProgram(gl, FULLSCREEN_VS, LIT_FS);
-  const tileProg = createProgram(gl, FULLSCREEN_VS, TILE_FS);
-  const viewProg = createProgram(gl, FULLSCREEN_VS, VIEW_FS);
-  const preProg = createProgram(gl, FULLSCREEN_VS, PREFILTER_FS);
-  const vao = gl.createVertexArray();
-  const uniforms = (p: WebGLProgram) => (n: string) => gl.getUniformLocation(p, n);
-  const uf = uniforms(flatProg);
-  const ug = uniforms(gbProg);
-  const up = uniforms(prevProg);
-  const uo = uniforms(occProg);
-  const ul = uniforms(litProg);
-  const ut = uniforms(tileProg);
-  const uv = uniforms(viewProg);
-  const upf = uniforms(preProg);
+  type ULoc = (n: string) => WebGLUniformLocation | null;
+  let flatProg!: WebGLProgram;
+  let gbProg!: WebGLProgram;
+  let prevProg!: WebGLProgram;
+  let occProg!: WebGLProgram;
+  let litProg!: WebGLProgram;
+  let tileProg!: WebGLProgram;
+  let viewProg!: WebGLProgram;
+  let preProg!: WebGLProgram;
+  let vao!: WebGLVertexArrayObject;
+  let uf!: ULoc;
+  let ug!: ULoc;
+  let up!: ULoc;
+  let uo!: ULoc;
+  let ul!: ULoc;
+  let ut!: ULoc;
+  let uv!: ULoc;
+  let upf!: ULoc;
+  let fiberTex!: WebGLTexture;
+  let emptyTex!: WebGLTexture;
   let tex: Uploaded | null = null;
   let gbuf: GBuffer | null = null;
-  // İki önbellek yuvası: keskin Lup (ao / gölge döşemesi) ve filtreli yol (ön süzülmüş renk); gezinmede Lup filtreli
-  // yola geçip dururken keskine döndüğünde ikisi de korunur (yeniden pişirme yok)
-  let bakeS: Bake | null = null;
-  let bakeF: Bake | null = null;
+  // Pişirme önbelleği: keskin Lup (ao / gölge döşemesi) ve filtreli yol (ön süzülmüş renk) birlikte, en az kullanılan
+  // başta (LRU). Toplam kalıcı bellek BAKE_CACHE_MAX_BYTES'ı aşınca en eskiler GPU'dan atılır; mod / zoom değiştikçe
+  // eski seviyelerin dokuları birikip GPU belleğini tüketmez.
+  let bakes: Bake[] = [];
   let lastBake: Bake | null = null;
   let hair: HairBake | null = null;
   let inputVersion = 0;
   let lastBakeMs: number | null = null;
   let disposed = false;
 
-  // Lif gürültüsü — renderer başına bir kez (deterministik)
-  const fiberTex = gl.createTexture()!;
-  gl.bindTexture(gl.TEXTURE_2D, fiberTex);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, FIBER_TEX_SIZE, FIBER_TEX_SIZE, 0, gl.RED, gl.FLOAT, bakeFiberNoise());
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.generateMipmap(gl.TEXTURE_2D);
-  // Anizotropik süzgeç (varsa): boyunca uzamış lif gürültüsü uzak / eğik bakışta bulanmaz, moiré oluşmaz
-  const aniso = gl.getExtension('EXT_texture_filter_anisotropic') as
-    | { TEXTURE_MAX_ANISOTROPY_EXT: number; MAX_TEXTURE_MAX_ANISOTROPY_EXT: number }
-    | null;
-  if (aniso) {
-    const maxA = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number;
-    gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, maxA));
-  }
+  /** Program ve sabit dokuları kurar (açılışta ve webglcontextrestored sonrası). */
+  const initResources = () => {
+    // Bağlam geri gelince eklentiler SIFIRLANIR: EXT_color_buffer_float yeniden etkinleştirilmezse float G-buffer
+    // eksik framebuffer (36054) olur ve panel siyah kalır
+    ext = hasRequiredExtensions(gl);
+    flatProg = createProgram(gl, FULLSCREEN_VS, FLAT_FS);
+    gbProg = createProgram(gl, FULLSCREEN_VS, GBUFFER_FS);
+    prevProg = createProgram(gl, FULLSCREEN_VS, PREVIEW_FS);
+    occProg = createProgram(gl, FULLSCREEN_VS, OCCLUSION_FS);
+    litProg = createProgram(gl, FULLSCREEN_VS, LIT_FS);
+    tileProg = createProgram(gl, FULLSCREEN_VS, TILE_FS);
+    viewProg = createProgram(gl, FULLSCREEN_VS, VIEW_FS);
+    preProg = createProgram(gl, FULLSCREEN_VS, PREFILTER_FS);
+    vao = gl.createVertexArray()!;
+    const uniforms = (p: WebGLProgram): ULoc => (n: string) => gl.getUniformLocation(p, n);
+    uf = uniforms(flatProg);
+    ug = uniforms(gbProg);
+    up = uniforms(prevProg);
+    uo = uniforms(occProg);
+    ul = uniforms(litProg);
+    ut = uniforms(tileProg);
+    uv = uniforms(viewProg);
+    upf = uniforms(preProg);
+    // Lif gürültüsü — renderer başına bir kez (deterministik)
+    fiberTex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, fiberTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, FIBER_TEX_SIZE, FIBER_TEX_SIZE, 0, gl.RED, gl.FLOAT, bakeFiberNoise());
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    // Anizotropik süzgeç (varsa): boyunca uzamış lif gürültüsü uzak / eğik bakışta bulanmaz, moiré oluşmaz
+    const aniso = gl.getExtension('EXT_texture_filter_anisotropic') as
+      | { TEXTURE_MAX_ANISOTROPY_EXT: number; MAX_TEXTURE_MAX_ANISOTROPY_EXT: number }
+      | null;
+    if (aniso) {
+      const maxA = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number;
+      gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, maxA));
+    }
 
-  // Tüy kapalıyken bağlanacak boş doku
-  const emptyTex = createTexture(gl, gl.RGBA8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    // Tüy kapalıyken bağlanacak boş doku
+    emptyTex = createTexture(gl, gl.RGBA8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  };
+  initResources();
 
   const freeTextures = () => {
     if (!tex) return;
@@ -224,10 +264,26 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     if (lastBake === b) lastBake = null;
   };
   const freeBake = () => {
-    freeBakeOf(bakeS);
-    freeBakeOf(bakeF);
-    bakeS = null;
-    bakeF = null;
+    for (const b of bakes) freeBakeOf(b);
+    bakes = [];
+  };
+  /** Kalıcı bellek üst sınırı (bayt): ao / gölge RGBA8 + renk SRGB8_ALPHA8 mip'li (×1.34). VARSAYIM: 96 MB. */
+  const BAKE_CACHE_MAX_BYTES = 96 * 1024 * 1024;
+  const bakeBytes = (b: Bake) => b.size[0] * b.size[1] * (4 + (b.color ? 4 * 1.34 : 0));
+  const touchBake = (b: Bake) => {
+    const i = bakes.indexOf(b);
+    if (i >= 0) {
+      bakes.splice(i, 1);
+      bakes.push(b);
+    }
+    lastBake = b;
+    return b;
+  };
+  const evictBakes = (keep: Bake) => {
+    for (const old of lruEvictions(bakes.map((b) => ({ id: b, bytes: bakeBytes(b) })), keep, BAKE_CACHE_MAX_BYTES)) {
+      bakes.splice(bakes.indexOf(old), 1);
+      freeBakeOf(old);
+    }
   };
   const freeHair = () => {
     if (!hair) return;
@@ -313,7 +369,13 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const fbo = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.deleteFramebuffer(fbo);
+      gl.deleteTexture(t);
+      throw new Error(`Döşeme hedefi tamamlanamadı (${w}×${h}, durum ${status}).`);
+    }
     return { tex: t, fbo };
   };
 
@@ -624,7 +686,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const fwhm = filterFwhmMm(distance);
     const dMin = minYarnDiameterMm(input);
     const dbg = opts.debugFilter ?? {};
-    const bake = filtered ? bakeF : bakeS;
+    const cands = bakes.filter((x) => x.filtered === filtered);
     const Dfilt = filtered ? (dbg.density ?? filteredBakeDensity(fwhm, screenPpm, dMin)) : 0;
     const key = JSON.stringify([
       t.version,
@@ -654,9 +716,9 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const pMax = Math.max(pitchMm(input.density.warpPerCm), pitchMm(input.density.weftPerCm));
     // Gezinmede filtreli pişirme yalnız örneklenir: yoğunluk kovası değişse de mevcut döşeme (mip) kullanılır;
     // durunca uygun kovaya yeniden pişirilir
-    if (filtered && v.navigating && bake && bake.keyBase === keyBase && (!bake.windowed || inWindow(bake))) {
-      lastBake = bake;
-      return bake;
+    if (filtered && v.navigating) {
+      const nav = cands.find((x) => x.keyBase === keyBase && (!x.windowed || inWindow(x)));
+      if (nav) return touchBake(nav);
     }
     // Bölge ve yoğunluk
     let origin: [number, number] = [0, 0];
@@ -676,10 +738,8 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       const fit = Math.min(maxTex / Math.max(tile.mm[0], tile.mm[1]), Math.sqrt(FILTER_BAKE_MAX_TEXELS / (tile.mm[0] * tile.mm[1])));
       D = Math.min(Dfilt, fit);
       if (D < Math.min(Dfilt, 2 / dMin)) {
-        if (bake && bake.key === key && bake.windowed && inWindow(bake)) {
-          lastBake = bake;
-          return bake;
-        }
+        const hit = cands.find((x) => x.key === key && x.windowed && inWindow(x));
+        if (hit) return touchBake(hit);
         openWindow(Dfilt, maxTex);
       }
     } else if (profile === 'mobile') {
@@ -688,94 +748,129 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       D = bakeDensity(tile, input, bakeMaxSide, 16, 64);
       const want = bakeDensity(tile, input, Infinity, 16, 64);
       if (D < 0.6 * want) {
-        if (bake && bake.key === key && bake.windowed && inWindow(bake)) {
-          lastBake = bake;
-          return bake;
-        }
+        const hit = cands.find((x) => x.key === key && x.windowed && inWindow(x));
+        if (hit) return touchBake(hit);
         openWindow(want, bakeMaxSide);
       }
     }
-    if (!windowed && bake && bake.key === key) {
-      lastBake = bake;
-      return bake;
+    if (!windowed) {
+      const hit = cands.find((x) => x.key === key && !x.windowed);
+      if (hit) return touchBake(hit);
     }
-    freeBakeOf(bake);
-    if (filtered) bakeF = null;
-    else bakeS = null;
+    // aynı anahtarlı eski pencere artık geçersiz (görünüm pencereden çıktı)
+    for (const old of cands.filter((x) => x.windowed && x.key === key)) {
+      bakes.splice(bakes.indexOf(old), 1);
+      freeBakeOf(old);
+    }
+    // Doku kenarı MAX_TEXTURE_SIZE'ı ve toplam texel bütçesini (geçici bellek ≈ 50 bayt / texel) aşmasın
+    D = Math.min(D!, maxTex / Math.max(span[0], span[1]), Math.sqrt(FILTER_BAKE_MAX_TEXELS / (span[0] * span[1])));
     const t0 = performance.now();
-    const w = Math.max(8, Math.round(span[0] * D!));
-    const h = Math.max(8, Math.round(span[1] * D!));
-    const ppmXY: [number, number] = [w / span[0], h / span[1]];
-    const ppm = Math.sqrt(ppmXY[0] * ppmXY[1]);
     // Filtreli pişirmede iplik başına sapma yok (görüntülemede uzun periyotlu tablodan)
     const vb: ViewParams = filtered && !dbg.bakeVariation ? { ...v, tuning: { ...tn, irregularity: 0 } } : v;
-    // 1) G-buffer (yarım hassasiyet; tüm döşemede sarmalı)
-    const g = makeGBuffer(w, h, true, !windowed);
-    drawGBuffer(t, input, vb, g, ppmXY, origin, true);
-    // 2) AO + gölge (döşemede sarmalı komşuluk, pencerede kenara kıskaç)
-    const occ = makeTarget(w, h, false);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, occ.fbo);
-    gl.viewport(0, 0, w, h);
-    gl.useProgram(occProg);
-    gl.bindVertexArray(vao);
-    bindTex(0, g.gb0, uo('uGb0'));
-    bindTex(1, g.gb2, uo('uGb2'));
-    gl.uniform2i(uo('uSize'), w, h);
-    gl.uniform1f(uo('uPxPerMm'), ppm);
-    gl.uniform1f(uo('uPitchPx'), pitchMm(input.density.warpPerCm) * ppm);
-    gl.uniform1i(uo('uAoScales'), q.ao);
-    gl.uniform1f(uo('uAoStrength'), tn.aoStrength ?? 1);
-    gl.uniform1i(uo('uShadowSteps'), q.shadow);
-    gl.uniform3fv(uo('uLightDir'), lightDirection(v.light.azimuthDeg, v.light.elevationDeg));
-    gl.uniform1f(uo('uRRef'), t.rMax);
-    gl.uniform1i(uo('uWrap'), windowed ? 0 : 1);
-    gl.uniform1f(uo('uContact'), tn.contactShadow ?? 1);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.deleteFramebuffer(occ.fbo);
-    const b: Bake = { key, keyBase, tile, occ: occ.tex, color: null, size: [w, h], ms: 0, origin, span, windowed, density: ppm, filtered };
-    // 3) renk döşemesi (sRGB, mip'li): mobil ya da filtreli yol
-    if (colorBake) {
-      // Göz / Uzak'ta tüy pişirilmez (lif bu mesafede görünmez); mobil yüksek kalitede ve uzak Lup'ta pişirilir
-      const hairTex = v.quality === 'high' && distance === 'loupe' ? ensureHair(t, input, v) : null;
-      const col = makeTarget(w, h, true, true);
-      drawLit(t, input, vb, g, b, hairTex, col.fbo, ppmXY, origin);
-      // Algısal ön filtre: kumaş mm'sinde ayrılabilir Gauss (σ = FWHM / 2.355), doğrusal uzayda (sRGB doku)
-      const sx = sigmaFromFwhm(fwhm) * ppmXY[0];
-      const sy = sigmaFromFwhm(fwhm) * ppmXY[1];
-      if (filtered && Math.max(sx, sy) > 0.25) {
-        const tmp = makeTarget(w, h, false, true);
-        gl.useProgram(preProg);
-        gl.bindVertexArray(vao);
+    /**
+     * Tek pişirme denemesi. Her adımda GL hatası ve framebuffer durumu denetlenir; hata (bellek yetersiz, eksik
+     * framebuffer, bağlam kaybı) sessizce siyah bırakılmaz: loglanır, yarım kalan kaynaklar serbest bırakılır ve
+     * null döner (çağıran bir alt çözünürlüğe düşer).
+     */
+    const build = (Dtry: number): Bake | null => {
+      const w = Math.max(8, Math.round(span[0] * Dtry));
+      const h = Math.max(8, Math.round(span[1] * Dtry));
+      const ppmXY: [number, number] = [w / span[0], h / span[1]];
+      const ppm = Math.sqrt(ppmXY[0] * ppmXY[1]);
+      let g: GBuffer | null = null;
+      let occ: { tex: WebGLTexture; fbo: WebGLFramebuffer } | null = null;
+      let col: { tex: WebGLTexture; fbo: WebGLFramebuffer } | null = null;
+      let tmp: { tex: WebGLTexture; fbo: WebGLFramebuffer } | null = null;
+      let ok = false;
+      gl.getError(); // önceki hataları temizle
+      try {
+        // 1) G-buffer (yarım hassasiyet; tüm döşemede sarmalı)
+        g = makeGBuffer(w, h, true, !windowed);
+        drawGBuffer(t, input, vb, g, ppmXY, origin, true);
+        // 2) AO + gölge (döşemede sarmalı komşuluk, pencerede kenara kıskaç)
+        occ = makeTarget(w, h, false);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, occ.fbo);
         gl.viewport(0, 0, w, h);
-        gl.uniform2i(upf('uSize'), w, h);
-        gl.uniform1i(upf('uWrap'), windowed ? 0 : 1);
-        // yatay: renk → geçici
-        gl.bindFramebuffer(gl.FRAMEBUFFER, tmp.fbo);
-        bindTex(0, col.tex, upf('uSrc'));
-        gl.uniform2i(upf('uDir'), 1, 0);
-        gl.uniform1f(upf('uSigma'), sx);
+        gl.useProgram(occProg);
+        gl.bindVertexArray(vao);
+        bindTex(0, g.gb0, uo('uGb0'));
+        bindTex(1, g.gb2, uo('uGb2'));
+        gl.uniform2i(uo('uSize'), w, h);
+        gl.uniform1f(uo('uPxPerMm'), ppm);
+        gl.uniform1f(uo('uPitchPx'), pitchMm(input.density.warpPerCm) * ppm);
+        gl.uniform1i(uo('uAoScales'), q.ao);
+        gl.uniform1f(uo('uAoStrength'), tn.aoStrength ?? 1);
+        gl.uniform1i(uo('uShadowSteps'), q.shadow);
+        gl.uniform3fv(uo('uLightDir'), lightDirection(v.light.azimuthDeg, v.light.elevationDeg));
+        gl.uniform1f(uo('uRRef'), t.rMax);
+        gl.uniform1i(uo('uWrap'), windowed ? 0 : 1);
+        gl.uniform1f(uo('uContact'), tn.contactShadow ?? 1);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
-        // dikey: geçici → renk
-        gl.bindFramebuffer(gl.FRAMEBUFFER, col.fbo);
-        bindTex(0, tmp.tex, upf('uSrc'));
-        gl.uniform2i(upf('uDir'), 0, 1);
-        gl.uniform1f(upf('uSigma'), sy);
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
-        gl.deleteFramebuffer(tmp.fbo);
-        gl.deleteTexture(tmp.tex);
+        const b: Bake = { key, keyBase, tile, occ: occ.tex, color: null, size: [w, h], ms: 0, origin, span, windowed, density: ppm, filtered };
+        // 3) renk döşemesi (sRGB, mip'li): mobil ya da filtreli yol
+        if (colorBake) {
+          // Göz / Uzak'ta tüy pişirilmez (lif bu mesafede görünmez); mobil yüksek kalitede ve uzak Lup'ta pişirilir
+          const hairTex = v.quality === 'high' && distance === 'loupe' ? ensureHair(t, input, v) : null;
+          col = makeTarget(w, h, true, true);
+          drawLit(t, input, vb, g, b, hairTex, col.fbo, ppmXY, origin);
+          // Algısal ön filtre: kumaş mm'sinde ayrılabilir Gauss (σ = FWHM / 2.355), doğrusal uzayda (sRGB doku)
+          const sx = sigmaFromFwhm(fwhm) * ppmXY[0];
+          const sy = sigmaFromFwhm(fwhm) * ppmXY[1];
+          if (filtered && Math.max(sx, sy) > 0.25) {
+            tmp = makeTarget(w, h, false, true);
+            gl.useProgram(preProg);
+            gl.bindVertexArray(vao);
+            gl.viewport(0, 0, w, h);
+            gl.uniform2i(upf('uSize'), w, h);
+            gl.uniform1i(upf('uWrap'), windowed ? 0 : 1);
+            // yatay: renk → geçici
+            gl.bindFramebuffer(gl.FRAMEBUFFER, tmp.fbo);
+            bindTex(0, col.tex, upf('uSrc'));
+            gl.uniform2i(upf('uDir'), 1, 0);
+            gl.uniform1f(upf('uSigma'), sx);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+            // dikey: geçici → renk
+            gl.bindFramebuffer(gl.FRAMEBUFFER, col.fbo);
+            bindTex(0, tmp.tex, upf('uSrc'));
+            gl.uniform2i(upf('uDir'), 0, 1);
+            gl.uniform1f(upf('uSigma'), sy);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+          }
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.bindTexture(gl.TEXTURE_2D, col.tex);
+          gl.generateMipmap(gl.TEXTURE_2D);
+          b.color = col.tex;
+        }
+        const err = gl.getError();
+        if (err !== gl.NO_ERROR) throw new Error(`GL hatası 0x${err.toString(16)}${err === gl.OUT_OF_MEMORY ? ' (bellek yetersiz)' : ''}`);
+        if (gl.isContextLost()) throw new Error('WebGL bağlamı kayıp');
+        b.ms = performance.now() - t0;
+        ok = true;
+        return b;
+      } catch (e) {
+        console.warn(`[gerçekçi] pişirme başarısız (${w}×${h} = ${((w * h) / 1e6).toFixed(2)} M texel, ${Dtry.toFixed(1)} texel/mm): ${(e as Error).message}`);
+        return null;
+      } finally {
+        if (g) freeGB(g);
+        for (const tg of [occ, col, tmp]) {
+          if (!tg) continue;
+          gl.deleteFramebuffer(tg.fbo);
+          if (!ok || tg === tmp) gl.deleteTexture(tg.tex); // başarıda occ / renk dokuları önbellekte kalır
+        }
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.bindTexture(gl.TEXTURE_2D, col.tex);
-      gl.generateMipmap(gl.TEXTURE_2D);
-      gl.deleteFramebuffer(col.fbo);
-      b.color = col.tex;
+    };
+    let b: Bake | null = null;
+    let Dtry = D;
+    for (let attempt = 0; attempt < 5 && !b && !gl.isContextLost(); attempt++) {
+      b = build(Dtry);
+      if (!b) Dtry *= 0.5; // bir alt çözünürlüğe düş
     }
-    freeGB(g);
-    b.ms = performance.now() - t0;
+    if (!b) throw new Error('Döşeme pişirilemedi (GPU bellek / doku sınırı); çözünürlük düşürmek yetmedi.');
     lastBakeMs = b.ms;
-    if (filtered) bakeF = b;
-    else bakeS = b;
+    bakes.push(b);
     lastBake = b;
+    evictBakes(b);
     return b;
   };
 
@@ -786,6 +881,24 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     drawGBuffer(t, input, v, g, [ppm, ppm], [v.offsetCm[0] * 10, v.offsetCm[1] * 10], false, true);
     return { t, g };
   };
+
+  /**
+   * Bağlam geri geldi: eski GL nesneleri (dokular, framebuffer'lar, programlar) geçersizdir — silmeden bırakılır,
+   * önbellekler sıfırlanır, sabit kaynaklar yeniden kurulur; sonraki render yeniden pişirir.
+   */
+  function resetAfterRestore() {
+    tex = null;
+    gbuf = null;
+    bakes = [];
+    lastBake = null;
+    hair = null;
+    varTex = null;
+    pendingQuery = null;
+    contextLost = false;
+    timerExt = getTimerExt();
+    initResources();
+    opts.onContextRestored?.();
+  }
 
   const api = {
     draw(input: FabricInput, v: ViewParams) {
@@ -896,7 +1009,10 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     dispose() {
       if (disposed) return;
       disposed = true;
-      if ('removeEventListener' in canvas) canvas.removeEventListener('webglcontextlost', onLost as EventListener);
+      if ('removeEventListener' in canvas) {
+        canvas.removeEventListener('webglcontextlost', onLost as EventListener);
+        canvas.removeEventListener('webglcontextrestored', onRestored as EventListener);
+      }
       if (pendingQuery) gl.deleteQuery(pendingQuery);
       freeTextures();
       if (gbuf) freeGB(gbuf);
@@ -907,6 +1023,14 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       gl.deleteVertexArray(vao);
       gl.deleteTexture(fiberTex);
       gl.deleteTexture(emptyTex);
+      if (varTex) {
+        gl.deleteTexture(varTex.warp);
+        gl.deleteTexture(varTex.weft);
+        varTex = null;
+      }
+      // Bağlamı BURADA kaybettirmeyin: React (StrictMode) aynı tuvalle effect'i yeniden çalıştırır ve snapshot / ölçüm
+      // kodu tuvali yeniden kullanır; kayıp bağlam yeniden alınamaz. Tuval DOM'dan çıkınca bırakmak için
+      // gl/context.ts `releaseContextWhenDetached(canvas)` kullanılır.
     },
   };
 

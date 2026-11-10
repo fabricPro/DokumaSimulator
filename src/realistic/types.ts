@@ -182,8 +182,10 @@ export interface RendererOptions {
   debugView?: 'flat' | 'preview' | 'lit';
   /** Kare süresi ölçümü: 'auto' = timer varsa timer, yoksa sync. Varsayılan 'none'. */
   measure?: 'auto' | 'timer' | 'sync' | 'none';
-  /** WebGL bağlamı kaybedilince çağrılır (ör. sekme arka planda, sürücü sıfırlandı). */
+  /** WebGL bağlamı kaybedilince çağrılır (ör. sekme arka planda, sürücü sıfırlandı). Bağlam geri gelebilir. */
   onContextLost?: () => void;
+  /** Bağlam geri geldi ve kaynaklar yeniden kuruldu: çağıran yeniden çizmelidir. */
+  onContextRestored?: () => void;
   /**
    * Önbellek profili (fix-v2 adım 2). 'desktop' (varsayılan): ao / gölge / tüy döşemeye pişirilir, geometri
    * ve ışık her karede ekran çözünürlüğünde. 'mobile': tüm ışıklı sahne döşemeye bir kez pişirilir, her

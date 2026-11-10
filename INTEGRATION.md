@@ -214,7 +214,7 @@ const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // ekranda
 - **Önbellek:** filtreli yol ışıklı sahneyi bir kez pişirir, kumaş mm'sinde ayrılabilir Gauss ile ön süzer
   (doğrusal uzay, sRGB doku) ve mip'ler; gezinmede yalnız örnekler. Yoğunluk 2'nin kuvveti kovasıdır
   (`filteredBakeDensity`: ≥ 3 texel / en ince iplik, ≤ 8 texel / FWHM, ≤ ekran, ≤ 64 /mm); zoom yalnız kova
-  değiştirince yeniden pişirir. Döşeme sığmazsa (kenar ≤ MAX_TEXTURE_SIZE, ≤ 8 M texel) görünür pencere pişer.
+  değiştirince yeniden pişirir. Döşeme sığmazsa (kenar ≤ MAX_TEXTURE_SIZE, ≤ 2.5 M texel) görünür pencere pişer.
 - **İplik başına sapma** (ton ΔE, kalınlık) filtreli yolda döşemeye pişirilmez; görüntülemede kumaş mm'sinden
   hesaplanan iplik indeksiyle 4096 iplik periyotlu tablodan uygulanır (≥ 20 döşeme; 12 mm'lik döşemede tekrar
   eden düzenli şerit oluşmaz).
