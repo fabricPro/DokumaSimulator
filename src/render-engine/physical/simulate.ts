@@ -31,11 +31,24 @@ export interface SimulateOptions {
   seed?: number;
   /** 1 mm ölçek çubuğu (sol alt). Varsayılan true. */
   scaleBar?: boolean;
+  /**
+   * Hata ayıklama (gerçekçi mod tutarlılık testi). Verilmezse çıktı aynen eskisi gibidir.
+   *  geometryOnly: wobble, büküm kabartması ve lif gürültüsü kapalı (yalnız krepaj + kesit).
+   *  collect: ham yükseklik (mm) ve üstteki iplik kimliği döndürülür.
+   */
+  debug?: { geometryOnly?: boolean; collect?: boolean };
   /** Hazır hesaplanmış konumlar (verilmezse spec'ten tarak + yay modeliyle üretilir). */
   positions?: FabricPositions;
   /** Konum üreticilerini doğrudan ezmek için (test/deney). */
   warpPositions?: PositionGenerator;
   weftPositions?: PositionGenerator;
+}
+
+export interface SimulateDebug {
+  /** Ham yükseklik (mm), satır 0 = görüntünün üstü. */
+  height: Float32Array;
+  /** Üstteki iplik: +(gW+1) çözgü, −(gF+1) atkı, 0 zemin (global indeks). */
+  topId: Int32Array;
 }
 
 export interface SimulateResult {
@@ -50,6 +63,7 @@ export interface SimulateResult {
   jammedWeft: boolean;
   /** Penceredeki ipliklerin slot indeksleri (referansla aynı metrik ortalaması için). */
   warpSlotsUsed: Int32Array;
+  debug?: SimulateDebug;
   weftSlotsUsed: Int32Array;
 }
 
@@ -175,6 +189,11 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
   for (let k = 0; k < nF; k++) rfMax = Math.max(rfMax, rf[k]);
   const bg = -(rwMax + rfMax) * 1.4;
 
+  const geomOnly = !!opts.debug?.geometryOnly;
+  const wob = geomOnly ? 0 : WOBBLE;
+  const plyK = geomOnly ? 0 : 0.42;
+  const fibK = geomOnly ? 0 : 0.02;
+  const topId = opts.debug?.collect ? new Int32Array(N) : null;
   const Hm = new Float32Array(N);
   const Hpx = new Float32Array(N);
   const isBg = new Uint8Array(N);
@@ -209,8 +228,8 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
       const i = nearestIndex(xc, X);
       const gW = wr.first + i;
       const icol = pmod(gW, Rc);
-      const dx = X - (xc[i] + WOBBLE * Math.sin(Y * 2.1 + phw[i]));
-      const dy = Y - (yc[j] + WOBBLE * Math.sin(X * 2.3 + phf[j]));
+      const dx = X - (xc[i] + wob * Math.sin(Y * 2.1 + phw[i]));
+      const dy = Y - (yc[j] + wob * Math.sin(X * 2.3 + phf[j]));
       const rwi = rw[i];
       // Racetrack: değilen taraftan yassılma; o atkıda komşu da aynı durumdaysa (flotte yan yana)
       // tam, değilse yarı yassılma.
@@ -247,11 +266,12 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
 
       const covW = Math.abs(dx) < aW;
       const covF = Math.abs(dy) < aF;
-      const HwV = covW ? waveW + prof(dx, aW, aWM, bW) + 0.42 * rwi * plyW + 0.02 * rwi * fnW : -1e3;
-      const HfV = covF ? waveF + prof(dy, aF, aFM, bF) + 0.42 * rfj * plyF + 0.02 * rfj * fnF : -1e3;
+      const HwV = covW ? waveW + prof(dx, aW, aWM, bW) + plyK * rwi * plyW + fibK * rwi * fnW : -1e3;
+      const HfV = covF ? waveF + prof(dy, aF, aFM, bF) + plyK * rfj * plyF + fibK * rfj * fnF : -1e3;
       const topW = HwV >= HfV;
       const h = Math.max(HwV, HfV, bg);
       Hm[o] = h;
+      if (topId) topId[o] = h <= bg + 1e-6 ? 0 : HwV >= HfV ? gW + 1 : -(gF + 1);
       Hpx[o] = h * ppm;
       if (h > hMax) hMax = h;
       if (h <= bg + 1e-6) {
@@ -368,6 +388,7 @@ export function simulatePhysical(spec: FabricSpec, view: PhysicalView, opts: Sim
     jammedWarp: rtW.jammed,
     jammedWeft: rtF.jammed,
     warpSlotsUsed: wi,
+    ...(topId ? { debug: { height: Hm, topId } } : {}),
     weftSlotsUsed: fi,
   };
 }

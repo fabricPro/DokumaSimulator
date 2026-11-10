@@ -1,0 +1,40 @@
+{
+  "name": "Çok renkli bantlı çözgü (örnek)",
+  "note": "Referans görseldeki bant dizilimi (soldan sağa). Geçici örnek; gerçek desenle değiştirilecek. Örgü bant bazında, tek birleşik armür matrisi.",
+  "warpBands": [
+    { "ends": 32, "color": "#E3DCC8", "label": "krem", "weave": "plain" },
+    { "ends": 2, "color": "#4E3A1E", "label": "koyu kahve", "weave": "plain" },
+    { "ends": 22, "color": "#CDAE66", "label": "hardal", "weave": "twill31-S" },
+    { "ends": 2, "color": "#B9AD8C", "label": "bej", "weave": "plain" },
+    { "ends": 46, "color": "#CDAE66", "label": "hardal", "weave": "twill31-S" },
+    { "ends": 22, "color": "#E3DCC8", "label": "krem", "weave": "plain" },
+    { "ends": 10, "color": "#4E3A1E", "label": "koyu kahve", "weave": "twill31-S" },
+    { "ends": 14, "color": "#A99A78", "label": "taba", "weave": "twill31-S" },
+    { "ends": 8, "color": "#4E3A1E", "label": "koyu kahve", "weave": "twill31-S" },
+    { "ends": 32, "color": "#E3DCC8", "label": "krem", "weave": "plain" },
+    { "ends": 2, "color": "#4E3A1E", "label": "koyu kahve", "weave": "plain" },
+    { "ends": 22, "color": "#CDAE66", "label": "hardal", "weave": "twill31-S" },
+    { "ends": 3, "color": "#E3DCC8", "label": "krem", "weave": "plain" },
+    { "ends": 34, "color": "#CDAE66", "label": "hardal", "weave": "twill31-S" }
+  ],
+  "weaveRules": {
+    "plain": "bez ayağı: (c + r) mod 2 = 0 → çözgü üstte; c = global çözgü indeksi, r = atkı (0 alt)",
+    "twill22-Z": "2/2 dimi Z: ((c − r) mod 4) < 2 → çözgü üstte (köşegen sağa yükselir)",
+    "twill22-S": "2/2 dimi S: ((c + r) mod 4) < 2",
+    "twill31-S": "3/1 dimi, çözgü etkili: ((c + r) mod 4) < 3 → köşegen (sol üstten sağ alta). Hardal, koyu kahve ve taba bantlar. Hedef görüntü (reference/realistic-v2) ile aynı yön: prototipin (i − j) mod 4 < 3 kuralı, atkı j ekranda aşağı artarken; bizim r = −j. Tekstil adlandırmasında S görünümlü; kullanıcı kararıyla hedefe uyuldu.",
+    "twill31-Z": "3/1 dimi Z: ((c − r) mod 4) < 3 → köşegen / (sağa yükselen)",
+    "assumption": "Bant renkleri ve sıralaması reference/realistic-v2/prototip_render_v2.py ile birebir."
+  },
+  "weftRepeat": 4,
+  "weft": { "color": "#D8CFB6", "label": "açık krem" },
+  "density": { "warpPerCm": 40, "weftPerCm": 32 },
+  "yarn": {
+    "count": 20,
+    "unit": "Ne",
+    "twist": "Z",
+    "twistPerM": 700,
+    "luster": "mat",
+    "hairiness": 0.35,
+    "assumption": "İplik numarası ve tipi tanımda verilmedi; 40 tel/cm'ye uygun pamuk Ne 20/1 varsayıldı (çözgü ve atkı aynı tip)."
+  }
+}

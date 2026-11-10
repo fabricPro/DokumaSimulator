@@ -1,9 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { AxisPositions, FabricSpec, PositionGenerator } from '../render-engine';
 import { DENT_BAND, LINK_BAND, drawReedStrip, type ReedStripInfo } from './reedStrip';
 export type { ReedStripInfo } from './reedStrip';
 import type { PhysicalInfo } from '../render-engine/worker';
 import { imageToCanvas, RenderClient } from './renderClient';
+import type { QualityPref } from './RealisticLayer';
+
+/** Gerçekçi katman ayrı parça: yalnız "Gerçekçi" açılınca yüklenir (gerçekçi modülle birlikte). */
+const RealisticLayer = lazy(() => import('./RealisticLayer'));
+
+/**
+ * Gerçekçi görünüm yalnız yakında tam panel çalışır; daha uzakta imleci izleyen büyüteçte.
+ * VARSAYIM: 100 px/mm (≈ 10 px / 0.1 mm) altında iplik dokusu seçilemez, GPU'yu tüm panele harcamaya değmez.
+ */
+export const REALISTIC_FULL_PPM = 100;
+export const LOUPE_CSS = 256;
+export const LOUPE_ZOOM = 4;
+
+export interface RealisticOptions {
+  quality: QualityPref;
+  /** 'finished': mamul paneli (ortalama mamul sıklığı). */
+  densities: 'loom' | 'finished';
+  /** Destek yok / bağlam kaybı: uygulama düğmeyi kapatır, CPU render sürer. */
+  onUnavailable: () => void;
+}
 
 /** Görünüm penceresi: sol alt köşe (mm) ve px/mm. */
 export interface MmView {
@@ -52,6 +72,8 @@ interface Props {
   onViewChange: (v: MmView) => void;
   onInfo?: (info: PhysicalInfo) => void;
   onSize?: (w: number, h: number) => void;
+  /** Verilirse gerçekçi katman açık (yakında tam panel, uzakta büyüteç). */
+  realistic?: RealisticOptions;
 }
 
 const FULL_DELAY_MS = 220;
@@ -89,7 +111,10 @@ export function FabricPane({
   onViewChange,
   onInfo,
   onSize,
+  realistic,
 }: Props) {
+  const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
+  const [realText, setRealText] = useState('');
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 400, h: 400 });
@@ -329,6 +354,34 @@ export function FabricPane({
   }, [onViewChange]);
 
   const drag = useRef<{ x: number; y: number; x0: number; y0: number } | null>(null);
+
+  // Gerçekçi katman yerleşimi: paint() ile aynı ekran ↔ kumaş eşlemesi
+  let layer: null | { rect: { left: number; top: number; width: number; height: number }; originMm: [number, number]; ppm: number; loupe: boolean } = null;
+  if (realistic) {
+    const fabricW = size.w - leftW;
+    const h = size.h - bandH;
+    const ppm = view.pxPerMm;
+    const ox = renderWindow ? renderWindow.x0Mm : view.x0Mm;
+    const oy = renderWindow ? renderWindow.y0Mm : view.y0Mm;
+    const rectW = renderWindow ? Math.min(renderWindow.widthMm * ppm, fabricW) : fabricW;
+    const rectH = renderWindow ? Math.min(renderWindow.heightMm * ppm, h) : h;
+    const bottom = bandH + (renderWindow ? (h + rectH) / 2 : h);
+    if (ppm >= REALISTIC_FULL_PPM) {
+      layer = { rect: { left: leftW, top: bottom - rectH, width: rectW, height: rectH }, originMm: [ox, oy], ppm, loupe: false };
+    } else if (hover && hover.x >= leftW && hover.x <= leftW + rectW && hover.y >= bottom - rectH && hover.y <= bottom) {
+      const ppmL = ppm * LOUPE_ZOOM;
+      const X = ox + (hover.x - leftW) / ppm;
+      const Y = oy + (bottom - hover.y) / ppm;
+      const half = LOUPE_CSS / 2;
+      layer = {
+        rect: { left: hover.x - half, top: hover.y - half, width: LOUPE_CSS, height: LOUPE_CSS },
+        originMm: [X - half / ppmL, Y - half / ppmL],
+        ppm: ppmL,
+        loupe: true,
+      };
+    }
+  }
+
   return (
     <div className="fabric-pane" ref={wrapRef}>
       <canvas
@@ -338,6 +391,10 @@ export function FabricPane({
           drag.current = { x: e.clientX, y: e.clientY, x0: view.x0Mm, y0: view.y0Mm };
         }}
         onPointerMove={(e) => {
+          if (realistic) {
+            const r = (e.target as Element).getBoundingClientRect();
+            setHover({ x: e.clientX - r.left, y: e.clientY - r.top });
+          }
           const d = drag.current;
           if (!d) return;
           const v = viewRef.current;
@@ -345,13 +402,37 @@ export function FabricPane({
         }}
         onPointerUp={() => (drag.current = null)}
         onPointerCancel={() => (drag.current = null)}
+        onPointerLeave={() => setHover(null)}
       />
+      {realistic && (
+        // Büyüteç gizlenince katman bağlı kalır (WebGL bağlamı ve shader'lar yeniden kurulmasın)
+        <Suspense fallback={null}>
+          <RealisticLayer
+            spec={spec}
+            seed={seed}
+            densities={realistic.densities}
+            rect={layer?.rect ?? { left: 0, top: 0, width: 0, height: 0 }}
+            originMm={layer?.originMm ?? [0, 0]}
+            pxPerMm={layer?.ppm ?? view.pxPerMm}
+            loupe={layer?.loupe ?? true}
+            quality={realistic.quality}
+            onState={(s) => {
+              if (!s.ok) realistic.onUnavailable();
+              setRealText(s.text);
+            }}
+          />
+        </Suspense>
+      )}
       {title && (
         <div className="pane-title" style={{ top: bandH + 8, left: leftW + 8 }}>
           {title}
         </div>
       )}
-      <div className="pane-status">{status}</div>
+      <div className="pane-status">
+        {status}
+        {realistic && realText && <span className="real-status"> · {realText}</span>}
+        {realistic && !layer && <span className="real-status"> · Gerçekçi: büyüteç için imleci kumaşın üstüne getirin</span>}
+      </div>
     </div>
   );
 }

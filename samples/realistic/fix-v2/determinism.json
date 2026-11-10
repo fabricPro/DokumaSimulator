@@ -1,0 +1,59 @@
+{
+  "allPass": true,
+  "samples": [
+    {
+      "file": "plain.png",
+      "identical": true,
+      "otherSeedDiffPct": 87.11,
+      "pass": true
+    },
+    {
+      "file": "twill-2-2.png",
+      "identical": true,
+      "otherSeedDiffPct": 87.72,
+      "pass": true
+    },
+    {
+      "file": "twill-3-1.png",
+      "identical": true,
+      "otherSeedDiffPct": 88.03,
+      "pass": true
+    },
+    {
+      "file": "satin-5.png",
+      "identical": true,
+      "otherSeedDiffPct": 88.03,
+      "pass": true
+    },
+    {
+      "file": "broken-twill-1-3.png",
+      "identical": true,
+      "otherSeedDiffPct": 87.36,
+      "pass": true
+    },
+    {
+      "file": "banded-warp.png",
+      "identical": true,
+      "otherSeedDiffPct": 99.27,
+      "pass": true
+    },
+    {
+      "file": "banded-warp-detail.png",
+      "identical": true,
+      "otherSeedDiffPct": 99.1,
+      "pass": true
+    },
+    {
+      "file": "irregularity-strong.png",
+      "identical": true,
+      "otherSeedDiffPct": 93.45,
+      "pass": true
+    },
+    {
+      "file": "luster-compare.png",
+      "identical": true,
+      "otherSeedDiffPct": 90.49,
+      "pass": true
+    }
+  ]
+}

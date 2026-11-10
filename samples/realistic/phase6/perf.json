@@ -1,0 +1,91 @@
+{
+  "gpu": "ANGLE (AMD, AMD Radeon RX 7700 XT (0x0000747E) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "size": 1024,
+  "budgetMs": 16,
+  "rows": [
+    {
+      "quality": "low",
+      "file": "plain.png",
+      "method": "timer",
+      "medianMs": 0.59,
+      "worstMs": 0.68
+    },
+    {
+      "quality": "low",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "medianMs": 0.59,
+      "worstMs": 0.68
+    },
+    {
+      "quality": "low",
+      "file": "satin-5.png",
+      "method": "timer",
+      "medianMs": 0.6,
+      "worstMs": 1.04
+    },
+    {
+      "quality": "low",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "medianMs": 0.59,
+      "worstMs": 0.68
+    },
+    {
+      "quality": "medium",
+      "file": "plain.png",
+      "method": "timer",
+      "medianMs": 0.64,
+      "worstMs": 0.68
+    },
+    {
+      "quality": "medium",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "medianMs": 0.64,
+      "worstMs": 0.73
+    },
+    {
+      "quality": "medium",
+      "file": "satin-5.png",
+      "method": "timer",
+      "medianMs": 0.64,
+      "worstMs": 0.68
+    },
+    {
+      "quality": "medium",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "medianMs": 0.64,
+      "worstMs": 0.68
+    },
+    {
+      "quality": "high",
+      "file": "plain.png",
+      "method": "timer",
+      "medianMs": 0.71,
+      "worstMs": 0.76
+    },
+    {
+      "quality": "high",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "medianMs": 0.71,
+      "worstMs": 0.76
+    },
+    {
+      "quality": "high",
+      "file": "satin-5.png",
+      "method": "timer",
+      "medianMs": 0.73,
+      "worstMs": 0.76
+    },
+    {
+      "quality": "high",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "medianMs": 0.77,
+      "worstMs": 0.82
+    }
+  ]
+}

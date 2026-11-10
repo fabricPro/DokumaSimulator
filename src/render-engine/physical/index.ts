@@ -11,7 +11,7 @@ export type { SpringInput, SpringResult, AxisPositions, FabricPositions, AxisInp
 export { computeMetrics, jamLevel, structureMetrics, effectiveLoomWarpDensity, effectiveLoomWeftDensity } from './metrics';
 export type { FabricMetrics, MetricsOptions, WarningLevel, StructureMetrics, AxisStructure } from './metrics';
 export { simulatePhysical, racetrack, racetrackHalfHeight } from './simulate';
-export type { PhysicalView, SimulateOptions, SimulateResult, RacetrackSet } from './simulate';
+export type { PhysicalView, SimulateOptions, SimulateResult, SimulateDebug, RacetrackSet } from './simulate';
 export { createPhysicalRandom, constantPhysicalRandom } from './random';
 export type { PhysicalRandomSource } from './random';
 export { slotTable, slotOf, slotIndices, hexToRgb01 } from './yarns';

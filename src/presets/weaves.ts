@@ -50,6 +50,16 @@ export function dobbyFancy(): boolean[][] {
 }
 
 /**
+ * 1/3 kırık dimi (4×4): 1/3 dimi (her atkıda 1 çözgü üstte, köşegen sağa) ile başlar, 3. ve 4. çözgüler
+ * ters sırada taraklanmış gibi yer değiştirir → köşegen her iki uçta bir kırılır.
+ * Satırlar (atkı 0 alt): 1000 / 0100 / 0001 / 0010.
+ */
+export function brokenTwill13(): boolean[][] {
+  const order = [0, 1, 3, 2]; // 3. ve 4. uçların yeri değişir
+  return build(4, 4, (x, y) => order[x] === y);
+}
+
+/**
  * 3×3 yalancı lino (imitation gauze, mock leno), 6×6 rapor.
  * Kaynak: 3×3 birim ve onun tersiyle kurulan 6 çözgü × 6 atkı rapor — INFLIBNET e-PG Pathshala
  * "Fancy weaves" (Grosicki, Watson's Textile Design and Colour'a dayanır); Hayavadana, Woven Fabric
@@ -78,6 +88,7 @@ export const WEAVE_PRESETS: WeavePreset[] = [
   { id: 'satin5', name: "5'li Saten", weave: satin5() },
   { id: 'panama', name: 'Panama', weave: hopsack() },
   { id: 'mockleno3', name: '3×3 Yalancı lino', weave: mockLeno3() },
+  { id: 'brokentwill13', name: '1/3 Kırık dimi', weave: brokenTwill13() },
   { id: 'dobby', name: 'Armür motifi', weave: dobbyFancy() },
 ];
 

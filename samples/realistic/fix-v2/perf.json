@@ -1,0 +1,539 @@
+{
+  "gpu": "ANGLE (AMD, AMD Radeon RX 7700 XT (0x0000747E) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "size": 1024,
+  "budgetMs": {
+    "navigation": 4,
+    "frame": 16
+  },
+  "note": "frame* = gezinme karesi (döşeme önbellekten); bakeMs = desen / ışık / kalite değişince bir kez (CPU duvar saati, tüy CPU üretimi dahil)",
+  "rows": [
+    {
+      "profile": "desktop",
+      "quality": "low",
+      "file": "plain.png",
+      "method": "timer",
+      "frameMedianMs": 0.87,
+      "frameWorstMs": 1.04,
+      "bakeMs": 1,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 1,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "low",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "frameMedianMs": 0.87,
+      "frameWorstMs": 0.88,
+      "bakeMs": 1.3,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 1.300000011920929,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "low",
+      "file": "satin-5.png",
+      "method": "timer",
+      "frameMedianMs": 0.88,
+      "frameWorstMs": 0.89,
+      "bakeMs": 1.2,
+      "tile": {
+        "mm": [
+          13.333333333333332,
+          13.461538461538462
+        ],
+        "texels": [
+          640,
+          646
+        ],
+        "ms": 1.2000000029802322,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "low",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "frameMedianMs": 0.89,
+      "frameWorstMs": 0.91,
+      "bakeMs": 1.2,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          4016,
+          800
+        ],
+        "ms": 1.2000000029802322,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "medium",
+      "file": "plain.png",
+      "method": "timer",
+      "frameMedianMs": 0.88,
+      "frameWorstMs": 0.94,
+      "bakeMs": 1.2,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 1.199999988079071,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "medium",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "frameMedianMs": 0.88,
+      "frameWorstMs": 0.88,
+      "bakeMs": 1.2,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 1.2000000029802322,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "medium",
+      "file": "satin-5.png",
+      "method": "timer",
+      "frameMedianMs": 0.88,
+      "frameWorstMs": 0.88,
+      "bakeMs": 1.4,
+      "tile": {
+        "mm": [
+          13.333333333333332,
+          13.461538461538462
+        ],
+        "texels": [
+          640,
+          646
+        ],
+        "ms": 1.4000000059604645,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "medium",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "frameMedianMs": 0.88,
+      "frameWorstMs": 0.91,
+      "bakeMs": 0.8,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          4016,
+          800
+        ],
+        "ms": 0.800000011920929,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "high",
+      "file": "plain.png",
+      "method": "timer",
+      "frameMedianMs": 0.88,
+      "frameWorstMs": 0.89,
+      "bakeMs": 4.1,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 4.0999999940395355,
+        "hairStrokes": 3074,
+        "hairMs": 25.100000008940697
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "high",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "frameMedianMs": 0.88,
+      "frameWorstMs": 0.89,
+      "bakeMs": 1.3,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 1.300000011920929,
+        "hairStrokes": 3102,
+        "hairMs": 18.099999994039536
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "high",
+      "file": "satin-5.png",
+      "method": "timer",
+      "frameMedianMs": 0.88,
+      "frameWorstMs": 0.88,
+      "bakeMs": 2.1,
+      "tile": {
+        "mm": [
+          13.333333333333332,
+          13.461538461538462
+        ],
+        "texels": [
+          640,
+          646
+        ],
+        "ms": 2.0999999940395355,
+        "hairStrokes": 4303,
+        "hairMs": 25.900000005960464
+      }
+    },
+    {
+      "profile": "desktop",
+      "quality": "high",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "frameMedianMs": 0.89,
+      "frameWorstMs": 6.22,
+      "bakeMs": 2.5,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          4016,
+          800
+        ],
+        "ms": 2.5,
+        "hairStrokes": 59362,
+        "hairMs": 289.8999999910593
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "low",
+      "file": "plain.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 0.8,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 0.7999999970197678,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "low",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 2.1,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 2.1000000089406967,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "low",
+      "file": "satin-5.png",
+      "method": "timer",
+      "frameMedianMs": 1.77,
+      "frameWorstMs": 1.77,
+      "bakeMs": 3.3,
+      "tile": {
+        "mm": [
+          13.333333333333332,
+          13.461538461538462
+        ],
+        "texels": [
+          640,
+          646
+        ],
+        "ms": 3.300000011920929,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "low",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 4.8,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          2048,
+          408
+        ],
+        "ms": 4.799999997019768,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "medium",
+      "file": "plain.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 2.9,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 2.8999999910593033,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "medium",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 4.3,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 4.299999997019768,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "medium",
+      "file": "satin-5.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 1,
+      "tile": {
+        "mm": [
+          13.333333333333332,
+          13.461538461538462
+        ],
+        "texels": [
+          640,
+          646
+        ],
+        "ms": 1,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "medium",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 0.8,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          2048,
+          408
+        ],
+        "ms": 0.7999999970197678,
+        "hairStrokes": 0,
+        "hairMs": 0
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "high",
+      "file": "plain.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 19,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 19,
+        "hairStrokes": 3074,
+        "hairMs": 18.299999997019768
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "high",
+      "file": "twill-2-2.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 20.7,
+      "tile": {
+        "mm": [
+          12,
+          12.307692307692308
+        ],
+        "texels": [
+          576,
+          591
+        ],
+        "ms": 20.700000002980232,
+        "hairStrokes": 3102,
+        "hairMs": 17.899999991059303
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "high",
+      "file": "satin-5.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 27.1,
+      "tile": {
+        "mm": [
+          13.333333333333332,
+          13.461538461538462
+        ],
+        "texels": [
+          640,
+          646
+        ],
+        "ms": 27.099999994039536,
+        "hairStrokes": 4303,
+        "hairMs": 24.700000002980232
+      }
+    },
+    {
+      "profile": "mobile",
+      "quality": "high",
+      "file": "banded-warp-detail.png",
+      "method": "timer",
+      "frameMedianMs": 0.02,
+      "frameWorstMs": 0.02,
+      "bakeMs": 282.3,
+      "tile": {
+        "mm": [
+          62.75,
+          12.5
+        ],
+        "texels": [
+          2048,
+          408
+        ],
+        "ms": 282.29999999701977,
+        "hairStrokes": 59362,
+        "hairMs": 279
+      }
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildFabricPositions,
   computeMetrics,
@@ -15,10 +15,14 @@ import { atkiJsonImporter } from '../importers/atkiJson';
 import { colorsToSlots } from '../importers/slots';
 import { physicalExample } from '../presets/physicalExample';
 import { FabricPanel, YarnPanel } from './Controls';
-import { FabricPane, MAX_PPM, MIN_PPM, type MmView, type MmWindow, type ReedStripInfo } from './FabricPane';
+import { FabricPane, LOUPE_ZOOM, MAX_PPM, MIN_PPM, REALISTIC_FULL_PPM, type MmView, type MmWindow, type ReedStripInfo } from './FabricPane';
 import { MetricsBar } from './MetricsBar';
 import { RenderClient, imageToCanvas } from './renderClient';
 import { WeaveEditor } from './WeaveEditor';
+import type { QualityPref } from './RealisticLayer';
+
+/** Kalibrasyon görünümü ve gerçekçi render modülü ayrı parça olarak, ilk açılışta yüklenir. */
+const CalibrationView = lazy(() => import('./CalibrationView'));
 
 /** PNG dışa aktarmada izin verilen en büyük piksel sayısı. */
 const MAX_EXPORT_PIXELS = 40_000_000;
@@ -57,6 +61,20 @@ export function App() {
   const [exporting, setExporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const fitted = useRef(false);
+  const [page, setPage] = useState<'sim' | 'calib'>('sim');
+  // Faz 6: gerçekçi görünüm (varsayılan kapalı; destek yoksa düğme sessizce devre dışı kalır)
+  const [realOn, setRealOn] = useState(false);
+  const [realQuality, setRealQuality] = useState<QualityPref>('auto');
+  const [realUnavailable, setRealUnavailable] = useState(false);
+  const onRealUnavailable = useCallback(() => {
+    setRealUnavailable(true);
+    setRealOn(false);
+  }, []);
+  const realistic = useMemo(
+    () => (realOn && !realUnavailable ? { quality: realQuality, densities: 'finished' as const, onUnavailable: onRealUnavailable } : undefined),
+    [realOn, realUnavailable, realQuality, onRealUnavailable],
+  );
+  const [calibOpened, setCalibOpened] = useState(false);
 
   const debSpec = useDebounced(spec, 60);
   const loomSpec = useMemo(() => ({ ...debSpec, warpShrinkPct: 0, weftShrinkPct: 0 }), [debSpec]);
@@ -259,6 +277,20 @@ export function App() {
     <div className="app">
       <header className="toolbar">
         <h1>Dokuma Simülatörü</h1>
+        <div className="seg">
+          <button className={page === 'sim' ? 'on' : ''} onClick={() => setPage('sim')}>
+            Simülatör
+          </button>
+          <button
+            className={page === 'calib' ? 'on' : ''}
+            onClick={() => {
+              setPage('calib');
+              setCalibOpened(true);
+            }}
+          >
+            Kalibrasyon
+          </button>
+        </div>
         <div className="toolbar-actions">
           <input
             ref={fileRef}
@@ -342,6 +374,25 @@ export function App() {
               Tarak → mamul çizgileri
             </label>
           )}
+          <label
+            className="check"
+            title={
+              realUnavailable
+                ? 'Gerçekçi görünüm kullanılamıyor (WebGL2 / kayan nokta hedefi yok ya da WebGL bağlamı kayboldu); mevcut görünüm kullanılıyor.'
+                : `Yakında (≥ ${REALISTIC_FULL_PPM} px/mm) tüm panel, uzakta imleci izleyen ×${LOUPE_ZOOM} büyüteç`
+            }
+          >
+            <input type="checkbox" checked={realOn} disabled={realUnavailable} onChange={(e) => setRealOn(e.target.checked)} />
+            Gerçekçi
+          </label>
+          {realOn && (
+            <select value={realQuality} onChange={(e) => setRealQuality(e.target.value as QualityPref)} title="Gerçekçi görünüm kalitesi">
+              <option value="auto">Kalite: otomatik</option>
+              <option value="high">Kalite: yüksek</option>
+              <option value="medium">Kalite: orta</option>
+              <option value="low">Kalite: düşük</option>
+            </select>
+          )}
           <label className="seed">
             seed
             <input type="number" value={seed} onChange={(e) => setSeed(Math.floor(+e.target.value) || 0)} />
@@ -392,6 +443,7 @@ export function App() {
               strips={showStrips && positions ? { warp: positions.warp, weft: positions.weft, which: 'loom' } : undefined}
               reedStrip={loomStrip}
               onViewChange={setView}
+              realistic={realistic}
             />
           )}
           <FabricPane
@@ -407,9 +459,17 @@ export function App() {
             onViewChange={setView}
             onInfo={setInfo}
             onSize={onSize}
+            realistic={realistic}
           />
         </div>
       </main>
+      {calibOpened && (
+        <div className="calib-layer" hidden={page !== 'calib'}>
+          <Suspense fallback={<div className="calib-msg">Kalibrasyon yükleniyor…</div>}>
+            <CalibrationView spec={spec} seed={seed} />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 }

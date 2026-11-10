@@ -1,0 +1,749 @@
+/**
+ * Gerçekçi mod snapshot sayfası (yalnız geliştirme). URL: /dev/realistic-snapshots?phase=N
+ * Tüm örnekleri sabit adlarla render eder, dev sunucusuna kaydettirir (samples/realistic/phaseN/),
+ * bitince window.__snapshotsDone = true ve window.__snapshotsReport = rapor.
+ * İleride bir Playwright scripti yalnız bu sayfayı açıp __snapshotsDone'ı bekleyebilir.
+ */
+import { createRealisticRenderer, flatColorAt, geometryAt, geometryParamsFromInput, hexToRgba, isRealisticSupported, photoRect, simView } from '../index';
+import type { CalibView } from '../calibration';
+import { simulatePhysical } from '../../render-engine/physical/simulate';
+import { constantPhysicalRandom } from '../../render-engine/physical/random';
+import type { FabricSpec } from '../../render-engine/types';
+import { expandBandedFixture, inputFromRows, type BandedFixture } from '../fixtures';
+import type { FabricInput, ViewParams } from '../types';
+import { brokenTwill13, plain, satin5, twill22, twill31 } from '../../presets/weaves';
+import banded from '../../../fixtures/banded-warp-sample.json';
+
+declare global {
+  interface Window {
+    __snapshotsDone?: boolean;
+    __snapshotsReport?: unknown;
+  }
+}
+
+const SIZE = 1024;
+const LIGHT = { azimuthDeg: 135, elevationDeg: 45 };
+
+interface Sample {
+  file: string;
+  title: string;
+  input: FabricInput;
+  pxPerCm: number;
+  tuning?: ViewParams['tuning'];
+}
+
+const W = '#e8e2d0';
+const F = '#3f4f6b';
+const bandedInput = expandBandedFixture(banded as BandedFixture);
+const SAMPLES: Sample[] = [
+  { file: 'plain.png', title: 'Bez ayağı', input: inputFromRows(plain(), W, F), pxPerCm: 500 },
+  { file: 'twill-2-2.png', title: '2/2 dimi', input: inputFromRows(twill22(), W, F), pxPerCm: 500 },
+  { file: 'twill-3-1.png', title: '3/1 dimi', input: inputFromRows(twill31(), W, F), pxPerCm: 500 },
+  { file: 'satin-5.png', title: "5'li saten", input: inputFromRows(satin5(), W, F), pxPerCm: 500 },
+  { file: 'broken-twill-1-3.png', title: '1/3 kırık dimi', input: inputFromRows(brokenTwill13(), W, F), pxPerCm: 500 },
+  // Bantlı çözgü: tüm rapor (251 tel ≈ 6.3 cm) ve yakın plan
+  { file: 'banded-warp.png', title: 'Bantlı çözgü (tam rapor)', input: bandedInput, pxPerCm: 160 },
+  { file: 'banded-warp-detail.png', title: 'Bantlı çözgü (yakın plan)', input: bandedInput, pxPerCm: 500 },
+  {
+    file: 'irregularity-strong.png',
+    title: 'Düzensizlik ×3 (kalınlık %12, konum %15, ΔE 4.5) — bez ayağı',
+    input: inputFromRows(plain(), W, F),
+    pxPerCm: 500,
+    tuning: { irregularity: 3 },
+  },
+  { file: 'luster-compare.png', title: 'Parlaklık: sol mat pamuk, sağ parlak polyester (aynı renk ve numara)', input: lusterInput(), pxPerCm: 500 },
+];
+
+/** Aynı renk ve numarada iki çözgü bandı: 40 tel mat pamuk + 40 tel parlak polyester, 2/2 dimi, koyu atkı. */
+function lusterInput(): FabricInput {
+  const base = inputFromRows(twill22(), '#d9cdb0', '#2f3a4f');
+  const warp = Array.from({ length: 80 }, (_, k) => ({ color: '#d9cdb0', yarnType: k < 40 ? 0 : 2 }));
+  return {
+    ...base,
+    warp,
+    yarnTypes: [
+      { count: 295, unit: 'Dtex', twist: 'Z', twistPerM: 700, luster: 'mat', hairiness: 0.35 },
+      { count: 295, unit: 'Dtex', twist: 'S', twistPerM: 300, luster: 'mat', hairiness: 0.3 },
+      { count: 295, unit: 'Dtex', twist: 'Z', twistPerM: 300, luster: 'parlak', hairiness: 0.03 },
+    ],
+  };
+}
+
+/** Kayıt klasörü etiketi: sayısal faz ya da düzeltme turu adı ('fix-v2' → samples/realistic/fix-v2/). */
+let SAVE_TAG: number | string = 1;
+const folderOf = (tag: number | string) => (typeof tag === 'number' ? `phase${tag}` : tag);
+
+async function save(_phase: number, name: string, body: string, kind: 'png' | 'json') {
+  const res = await fetch('/__realistic/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phase: SAVE_TAG, name, kind, data: body }),
+  });
+  if (!res.ok) throw new Error(`${name} kaydedilemedi: ${res.status} ${await res.text()}`);
+}
+
+/** Faz 1 doğrulaması: GPU çıktısı ile CPU ikizinin (flatColorAt) piksel eşleşmesi. */
+function compareFlat(gpu: Uint8Array, input: FabricInput, view: ViewParams): { matchPct: number; mismatches: number } {
+  const cache = new Map<string, [number, number, number, number]>();
+  let bad = 0;
+  for (let py = 0; py < SIZE; py++) {
+    for (let px = 0; px < SIZE; px++) {
+      const hex = flatColorAt(px, py, input, view);
+      let c = cache.get(hex);
+      if (!c) cache.set(hex, (c = hexToRgba(hex)));
+      const o = (py * SIZE + px) * 4; // readPixels: satır 0 = alt (GL), ikiz de py alttan
+      if (gpu[o] !== c[0] || gpu[o + 1] !== c[1] || gpu[o + 2] !== c[2]) bad++;
+    }
+  }
+  return { matchPct: (100 * (SIZE * SIZE - bad)) / (SIZE * SIZE), mismatches: bad };
+}
+
+/** Karşılaştırma için tek iplikli FabricSpec (mevcut CPU heightfield girdisi; renkler önemsiz). */
+function specForCompare(inp: FabricInput): FabricSpec {
+  const weave: boolean[][] = [];
+  for (let r = 0; r < inp.weave.wefts; r++) {
+    const row: boolean[] = [];
+    for (let c = 0; c < inp.weave.warps; c++) row.push(inp.weave.data[r * inp.weave.warps + c] === 1);
+    weave.push(row);
+  }
+  const slot = (k: number) => {
+    const y = inp.yarnTypes[k];
+    return { name: 'A' as const, count: y.count, system: y.unit, color: '#888888', twist: y.twist };
+  };
+  return {
+    version: 2,
+    weave,
+    warpSlots: [slot(inp.warp[0].yarnType)],
+    weftSlots: [slot(inp.weft[0].yarnType)],
+    warpSequence: [0],
+    weftSequence: [0],
+    warpDensityLoom: inp.density.warpPerCm,
+    weftDensityLoom: inp.density.weftPerCm,
+    warpShrinkPct: 0,
+    weftShrinkPct: 0,
+    warpCrimpShare: inp.crimpShare ?? 0.4,
+  };
+}
+
+/**
+ * Faz 2 tutarlılığı (gürültüsüz, k = 1): GPU G-buffer ↔ (a) CPU ikizi geometryAt, (b) mevcut CPU
+ * heightfield (simulatePhysical, geometryOnly). CPU iplik g'nin merkezi (g − 0.5)·p, gerçekçi modda
+ * i'nin (i + 0.5)·p olduğundan GPU penceresi bir aralık kaydırılır. Eşik: kimlik ≥ %99.5,
+ * yükseklik farkı (eşleşen piksellerde, %99.9 dilim) ≤ 0.02·r.
+ */
+function consistency(s: Sample): Record<string, unknown> {
+  const inp = s.input;
+  const g = geometryParamsFromInput(inp, 0, 0);
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  const r = createRealisticRenderer(canvas, { preserveDrawingBuffer: true });
+  const shift: [number, number] = [g.pitchWarp / 10, g.pitchWeft / 10];
+  r.render(inp, { pxPerCm: s.pxPerCm, offsetCm: shift, light: LIGHT, quality: 'high', tuning: { flattening: 0, irregularity: 0, model: 'classic' } });
+  const gb = r.readGBuffer();
+  r.dispose();
+  const ppm = s.pxPerCm / 10;
+  const cpu = simulatePhysical(
+    specForCompare(inp),
+    { x0Mm: 0, y0Mm: 0, widthMm: SIZE / ppm, heightMm: SIZE / ppm, pxPerMm: ppm },
+    { random: constantPhysicalRandom(), scaleBar: false, debug: { geometryOnly: true, collect: true } },
+  ).debug!;
+  const rMin = Math.min(g.warpRadius(0), g.weftRadius(0));
+  let idTwin = 0;
+  let idCpu = 0;
+  const dhTwin: number[] = [];
+  const dhCpu: number[] = [];
+  for (let py = 0; py < SIZE; py++) {
+    for (let px = 0; px < SIZE; px++) {
+      const o = (py * SIZE + px) * 4;
+      const gpuH = gb.gb0[o];
+      const gpuAxis = Math.round(gb.gb1[o + 2]); // 0 zemin, 1 çözgü, 2 atkı
+      const gpuIdx = Math.round(gb.gb0[o + 3]);
+      // CPU heightfield'ın eski kimlik kodlaması (bu bölge orijinin sağ üstünde, indeksler ≥ 0)
+      const gpuId = gpuAxis === 1 ? gpuIdx + 1 : gpuAxis === 2 ? -(gpuIdx + 1) : 0;
+      const X = shift[0] * 10 + Math.fround(px / Math.fround(ppm));
+      const Y = shift[1] * 10 + Math.fround(py / Math.fround(ppm));
+      const t = geometryAt(X, Y, g);
+      if (t.axis === gpuAxis && (gpuAxis === 0 || t.index === gpuIdx)) {
+        idTwin++;
+        if (gpuId !== 0) dhTwin.push(Math.abs(t.height - gpuH));
+      }
+      const co = (SIZE - 1 - py) * SIZE + px; // CPU satırı üstten
+      if (cpu.topId[co] === gpuId) {
+        idCpu++;
+        if (gpuId !== 0) dhCpu.push(Math.abs(cpu.height[co] - gpuH));
+      }
+    }
+  }
+  const p999 = (a: number[]) => {
+    if (a.length === 0) return 0;
+    const sorted = Float64Array.from(a).sort();
+    return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.999))];
+  };
+  const total = SIZE * SIZE;
+  const res = {
+    file: s.file,
+    idMatchTwinPct: +((100 * idTwin) / total).toFixed(3),
+    idMatchCpuPct: +((100 * idCpu) / total).toFixed(3),
+    dhTwinP999OverR: +(p999(dhTwin) / rMin).toFixed(5),
+    dhCpuP999OverR: +(p999(dhCpu) / rMin).toFixed(5),
+    dhCpuMaxOverR: +(dhCpu.reduce((m, v) => Math.max(m, v), 0) / rMin).toFixed(5),
+  };
+  return {
+    ...res,
+    pass: res.idMatchTwinPct >= 99.5 && res.idMatchCpuPct >= 99.5 && res.dhTwinP999OverR <= 0.02 && res.dhCpuP999OverR <= 0.02,
+  };
+}
+
+/**
+ * Faz 4 determinizmi: aynı girdi + tohum, ayrı bir renderer örneğinde yeniden render edilir → birebir
+ * aynı pikseller beklenir. Tohum + 1 ile render farklı olmalı (düzensizlik gerçekten tohuma bağlı).
+ */
+function determinism(s: Sample, view: ViewParams, first: Uint8Array): Record<string, unknown> {
+  const again = (input: FabricInput) => {
+    const c = document.createElement('canvas');
+    c.width = SIZE;
+    c.height = SIZE;
+    const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+    r.render(input, view);
+    const px = r.readPixels();
+    r.dispose();
+    return px;
+  };
+  const same = again({ ...s.input });
+  let identical = same.length === first.length;
+  for (let k = 0; identical && k < first.length; k++) if (same[k] !== first[k]) identical = false;
+  const other = again({ ...s.input, seed: (s.input.seed ?? 1) + 1 });
+  let diff = 0;
+  for (let k = 0; k < first.length; k += 4) {
+    if (other[k] !== first[k] || other[k + 1] !== first[k + 1] || other[k + 2] !== first[k + 2]) diff++;
+  }
+  const otherSeedDiffPct = +((100 * diff) / (first.length / 4)).toFixed(2);
+  return { identical, otherSeedDiffPct, pass: identical && otherSeedDiffPct > 1 };
+}
+
+/**
+ * Faz 5 kalibrasyon: kalibrasyon görünümünün kullandığı ortak-ölçek yardımcılarıyla (photoRect / simView)
+ *  (a) hizalama kontrolü: Faz 4 '2/2 dimi' snapshot'ı (500 px/cm) "fotoğraf" olarak alınır; aynı girdi, ışık
+ *      ve tohumla simView üzerinden render edilen kare fotoğrafla piksel piksel aynı olmalı
+ *      (ölçek, y yönü ve kaydırma uçtan uca doğru).
+ *  (b) görsel kompozitler: yan yana ve perde (%50) — fotoğraf yerine geçen snapshot (tohum 1) ile farklı
+ *      tohum ve ışıktaki simülasyon, ekranda 700 px/cm'de (fotoğraf yeniden ölçeklenir).
+ * Gerçek numune fotoğrafı depoda yok; kullanıcı kendi fotoğrafıyla uygulamadaki Kalibrasyon görünümünü kullanır.
+ */
+async function calibration(phase: number, say: (t: string) => void) {
+  // Bu çalıştırmada az önce kaydedilen 2/2 dimi (ölçek / y yönü / kaydırma uçtan uca)
+  const src = `/samples/realistic/${folderOf(SAVE_TAG)}/twill-2-2.png?t=${Date.now()}`;
+  const img = await new Promise<HTMLImageElement>((ok, fail) => {
+    const i = new Image();
+    i.onload = () => ok(i);
+    i.onerror = () => fail(new Error(src + ' yüklenemedi'));
+    i.src = src;
+  });
+  const photoPxPerCm = 500;
+  const input = SAMPLES[1].input;
+  const base = { light: LIGHT, quality: 'high' as const };
+
+  // (a) hizalama: ekran 500 px/cm, fotoğraf 1:1; snapshot'ın alt kenarı kumaşta y = 0 olduğundan
+  // simülasyon y'de fotoğraf yüksekliği kadar kaydırılır.
+  const H = img.naturalHeight;
+  const v0: CalibView = { screenPxPerCm: photoPxPerCm, x0Cm: 0, y0Cm: 0, simShiftCm: [0, H / photoPxPerCm] };
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = H;
+  const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+  r.render(input, simView(v0, H, 1, base));
+  const sim = document.createElement('canvas');
+  sim.width = c.width;
+  sim.height = c.height;
+  const sctx = sim.getContext('2d')!;
+  sctx.drawImage(c, 0, 0);
+  const ref = document.createElement('canvas');
+  ref.width = c.width;
+  ref.height = c.height;
+  const rctx = ref.getContext('2d')!;
+  rctx.drawImage(img, 0, 0);
+  const a = sctx.getImageData(0, 0, c.width, c.height).data;
+  const b = rctx.getImageData(0, 0, c.width, c.height).data;
+  let same = 0;
+  let maxDiff = 0;
+  for (let k = 0; k < a.length; k += 4) {
+    const d = Math.max(Math.abs(a[k] - b[k]), Math.abs(a[k + 1] - b[k + 1]), Math.abs(a[k + 2] - b[k + 2]));
+    if (d === 0) same++;
+    maxDiff = Math.max(maxDiff, d);
+  }
+  const identicalPct = +((100 * same) / (a.length / 4)).toFixed(3);
+  const alignment = { photo: src, photoPxPerCm, identicalPct, maxChannelDiff: maxDiff, pass: identicalPct >= 99.9 };
+  say('Kalibrasyon hizalaması: ' + JSON.stringify(alignment));
+
+  // (a2) orijin kontrolü: kalibrasyonda görünüm kumaşın negatif bölgesine kayar. Düzensizlik kapalıyken
+  // [0,0] ve dört rapor solda / altta aynı geometri çıkmalı: G-buffer'da sistem aynı, indeks 4 rapor farklı,
+  // yükseklik aynı; ayrıca her sistemin ortalama rengi aynı (eski +(i+1)/−(j+1) kimliği burada atkıyı
+  // kaybediyordu). Piksel eşitliği beklenmez: lif gürültüsü iplik boyunca mutlak konuma (mm mod 16) bağlı.
+  const origin: Record<string, unknown>[] = [];
+  for (const smp of SAMPLES.slice(0, 5)) {
+    const inp = smp.input;
+    const nx = inp.weave.warps;
+    const ny = inp.weave.wefts;
+    const rx = (4 * nx) / inp.density.warpPerCm; // cm
+    const ry = (4 * ny) / inp.density.weftPerCm;
+    const cv = document.createElement('canvas');
+    cv.width = 256;
+    cv.height = 256;
+    const rr = createRealisticRenderer(cv, { preserveDrawingBuffer: true });
+    // rölyef kapalı: lif dokusu mutlak konuma bağlı, rapor periyodik değil (geometri burada sınanır)
+    const vw = (o: [number, number]): ViewParams => ({ pxPerCm: 500, offsetCm: o, light: LIGHT, quality: 'high', tuning: { irregularity: 0, relief: 0 } });
+    const grab = (o: [number, number]) => {
+      rr.render(inp, vw(o));
+      const px = rr.readPixels();
+      const gb = rr.readGBuffer();
+      const mean = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ];
+      for (let k = 0; k < px.length; k += 4) {
+        const ax = Math.round(gb.gb1[k + 2]);
+        if (ax === 0) continue;
+        const m = mean[ax - 1];
+        m[0] += px[k];
+        m[1] += px[k + 1];
+        m[2] += px[k + 2];
+        m[3]++;
+      }
+      return { gb, mean: mean.map((m) => (m[3] ? [m[0] / m[3], m[1] / m[3], m[2] / m[3]] : [0, 0, 0])) };
+    };
+    const A = grab([0, 0]);
+    const B = grab([-rx, -ry]);
+    rr.dispose();
+    let same = 0;
+    let n = 0;
+    let maxDh = 0;
+    for (let k = 0; k < A.gb.gb0.length; k += 4) {
+      n++;
+      const axA = Math.round(A.gb.gb1[k + 2]);
+      const axB = Math.round(B.gb.gb1[k + 2]);
+      const iA = Math.round(A.gb.gb0[k + 3]);
+      const iB = Math.round(B.gb.gb0[k + 3]);
+      const ok = axA === axB && (axA === 0 || iB + 4 * (axA === 1 ? nx : ny) === iA);
+      if (ok) same++;
+      maxDh = Math.max(maxDh, Math.abs(A.gb.gb0[k] - B.gb.gb0[k]));
+    }
+    const meanDiff = Math.max(...A.mean.flatMap((m, a) => m.map((c, q) => Math.abs(c - B.mean[a][q]))));
+    const pct = +((100 * same) / n).toFixed(3);
+    origin.push({
+      file: smp.file,
+      offsetCm: [+(-rx).toFixed(4), +(-ry).toFixed(4)],
+      axisIndexMatchPct: pct,
+      maxDhMm: +maxDh.toExponential(2),
+      meanColorDiff: +meanDiff.toFixed(2),
+      pass: pct >= 99.5 && meanDiff <= 3,
+    });
+  }
+  say('Orijin (negatif bölge): ' + JSON.stringify(origin));
+
+  // (b) kompozitler
+  const PW = 512;
+  const PH = 768;
+  const S = 700;
+  const v: CalibView = { screenPxPerCm: S, x0Cm: 0.05, y0Cm: 0.1, simShiftCm: [0, 0] };
+  const simInput = { ...input, seed: 7 };
+  const simBase = { light: { azimuthDeg: 200, elevationDeg: 35 }, quality: 'high' as const };
+  const renderPane = (w: number) => {
+    c.width = w;
+    c.height = PH;
+    r.render(simInput, simView(v, PH, 1, simBase));
+    return c;
+  };
+  const drawPhoto = (ctx: CanvasRenderingContext2D, x: number, w: number) => {
+    const pr = photoRect(v, { width: img.naturalWidth, height: img.naturalHeight, pxPerCm: photoPxPerCm });
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, 0, w, PH);
+    ctx.clip();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x, 0, w, PH);
+    ctx.drawImage(img, x + pr.left, pr.top, pr.width, pr.height);
+    ctx.restore();
+  };
+  const label = (ctx: CanvasRenderingContext2D, x: number, t: string) => {
+    ctx.font = '14px system-ui, sans-serif';
+    const w = ctx.measureText(t).width + 16;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(x, 8, w, 22);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(t, x + 8, 24);
+  };
+  const bar = (ctx: CanvasRenderingContext2D, x: number) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(x + 8, PH - 34, S / 10 + 60, 26);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 16, PH - 23, S / 10, 4);
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('1 mm', x + 24 + S / 10, PH - 16);
+  };
+  // yan yana
+  const out = document.createElement('canvas');
+  out.width = PW * 2 + 4;
+  out.height = PH;
+  const o = out.getContext('2d')!;
+  o.fillStyle = '#000';
+  o.fillRect(0, 0, out.width, PH);
+  drawPhoto(o, 0, PW);
+  o.drawImage(renderPane(PW), PW + 4, 0);
+  label(o, 8, 'Fotoğraf (500 px/cm, yerine geçen)');
+  label(o, PW + 12, 'Simülasyon (tohum 7, ışık 200°/35°)');
+  bar(o, 0);
+  bar(o, PW + 4);
+  await save(phase, 'calibration-side.png', out.toDataURL('image/png'), 'png');
+  // perde
+  const out2 = document.createElement('canvas');
+  out2.width = PW * 2;
+  out2.height = PH;
+  const o2 = out2.getContext('2d')!;
+  drawPhoto(o2, 0, PW * 2);
+  const full = renderPane(PW * 2);
+  o2.drawImage(full, PW, 0, PW, PH, PW, 0, PW, PH);
+  o2.fillStyle = '#fff';
+  o2.fillRect(PW - 1, 0, 2, PH);
+  label(o2, 8, 'Fotoğraf');
+  label(o2, PW * 2 - 110, 'Simülasyon');
+  bar(o2, 0);
+  await save(phase, 'calibration-curtain.png', out2.toDataURL('image/png'), 'png');
+  r.dispose();
+  await save(phase, 'calibration.json', JSON.stringify({ alignment, origin, composites: { screenPxPerCm: S, pane: [PW, PH] } }, null, 2), 'json');
+  return { alignment, origin, originPass: origin.every((o) => o.pass) };
+}
+
+/**
+ * Faz 6 performans: 1024² pencere, her kalite seviyesi ve her örnek için kare süresi.
+ * EXT_disjoint_timer_query_webgl2 varsa gerçek GPU süresi; yoksa render + 1 piksel okuma (kaba).
+ * 3 ısınma + 10 ölçüm karesi, medyan ve en kötü. Hedef: orta telefonda < 16 ms (telefonda ölçülecek).
+ */
+async function perf(phase: number, say: (t: string) => void) {
+  // Gizli sayfada requestAnimationFrame çalışmaz: 'sync' ölçüme (render + 1 piksel okuma) düşülür.
+  const hidden = typeof document !== 'undefined' && document.hidden;
+  // Panel gizliyken document.hidden false olsa da rAF durabilir: rAF ya da 40 ms, hangisi önce gelirse
+  const frame = () =>
+    hidden
+      ? Promise.resolve()
+      : new Promise<void>((ok) => {
+          let done = false;
+          const fin = () => {
+            if (!done) {
+              done = true;
+              ok();
+            }
+          };
+          requestAnimationFrame(fin);
+          setTimeout(fin, 40);
+        });
+  const run1 = async (profile: 'desktop' | 'mobile') => {
+    const c = document.createElement('canvas');
+    c.width = SIZE;
+    c.height = SIZE;
+    const r = createRealisticRenderer(c, { measure: hidden ? 'sync' : 'auto', profile });
+    const gl = c.getContext('webgl2') as WebGL2RenderingContext;
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const gpu = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
+    const rows: Record<string, unknown>[] = [];
+    const picks = [SAMPLES[0], SAMPLES[1], SAMPLES[3], SAMPLES.find((x) => x.file === 'banded-warp-detail.png')!];
+    for (const q of ['low', 'medium', 'high'] as const) {
+      for (const smp of picks) {
+        const times: number[] = [];
+        let bakeMs: number | null = null;
+        let tile: unknown = null;
+        for (let k = 0; k < 13; k++) {
+          // gezinme: her karede görünüm kayar ve yakınlaşır (döşeme önbellekten okunur)
+          r.render(smp.input, { pxPerCm: smp.pxPerCm * (1 + 0.02 * k), offsetCm: [k * 0.013, k * 0.007], light: LIGHT, quality: q });
+          const st0 = r.stats();
+          if (k === 0) {
+            bakeMs = st0.bakeMs ?? null;
+            tile = st0.tile;
+          }
+          await frame();
+          await frame();
+          const st = r.stats();
+          if (k >= 3 && st.gpuMs !== null) times.push(st.gpuMs);
+        }
+        times.sort((a, b) => a - b);
+        rows.push({
+          profile,
+          quality: q,
+          file: smp.file,
+          method: r.stats().method,
+          frameMedianMs: +(times[Math.floor(times.length / 2)] ?? NaN).toFixed(2),
+          frameWorstMs: +(times[times.length - 1] ?? NaN).toFixed(2),
+          bakeMs: bakeMs === null ? null : +bakeMs.toFixed(1),
+          tile,
+        });
+      }
+    }
+    r.dispose();
+    return { gpu, rows };
+  };
+  const d = await run1('desktop');
+  const m = await run1('mobile');
+  const summary = {
+    gpu: d.gpu,
+    size: SIZE,
+    budgetMs: { navigation: 4, frame: 16 },
+    note: 'frame* = gezinme karesi (döşeme önbellekten); bakeMs = desen / ışık / kalite değişince bir kez (CPU duvar saati, tüy CPU üretimi dahil)',
+    rows: [...d.rows, ...m.rows],
+  };
+  await save(phase, 'perf.json', JSON.stringify(summary, null, 2), 'json');
+  say('Performans: ' + JSON.stringify(summary).slice(0, 4000));
+  return summary;
+}
+
+/**
+ * fix-v2 karşılaştırmaları (reference/realistic-v2). Prototip parametreleri görüntü boyutundan:
+ *  yakın plan OFF = 100, 56 tel, PW = 32 px (128 px/mm), 1792×820; genel 251 tel, PW = 13 (52 px/mm), 3263×560.
+ *  Prototip satırı j (aşağı) = bizim −r → görüntünün üst kenarı kumaşta y = 1 atkı aralığı.
+ *  Işık L = (−0.50, −0.62, 0.60) (görüntüde y aşağı) → azimut ≈ 128.9°, yükseklik ≈ 37.0°.
+ */
+const PROTO_LIGHT = (() => {
+  const L = [-0.5, 0.62, 0.6]; // y yukarı
+  const n = Math.hypot(L[0], L[1], L[2]);
+  return { azimuthDeg: (Math.atan2(L[1], L[0]) * 180) / Math.PI, elevationDeg: (Math.asin(L[2] / n) * 180) / Math.PI };
+})();
+
+async function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((ok, fail) => {
+    const i = new Image();
+    i.onload = () => ok(i);
+    i.onerror = () => fail(new Error(src + ' yüklenemedi'));
+    i.src = src;
+  });
+}
+
+function renderBanded(w: number, h: number, ppmMm: number, offEnds: number, tuning?: ViewParams['tuning']): HTMLCanvasElement {
+  const inp = bandedInput;
+  const pw = 10 / inp.density.warpPerCm; // mm
+  const pf = 10 / inp.density.weftPerCm;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
+  r.render(inp, {
+    pxPerCm: ppmMm * 10,
+    offsetCm: [(offEnds * pw) / 10, (pf - h / ppmMm) / 10],
+    light: PROTO_LIGHT,
+    quality: 'high',
+    ...(tuning ? { tuning } : {}),
+  });
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  out.getContext('2d')!.drawImage(c, 0, 0);
+  r.dispose();
+  return out;
+}
+
+function labelOn(ctx: CanvasRenderingContext2D, x: number, y: number, t: string) {
+  ctx.font = '16px system-ui, sans-serif';
+  const w = ctx.measureText(t).width + 16;
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(x, y, w, 24);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(t, x + 8, y + 17);
+}
+
+/** Bantlı fixture → eski CPU heightfield için FabricSpec (4 slot: krem, kahve, hardal, taba; bej → krem). */
+function bandedSpec(): FabricSpec {
+  const f = banded as BandedFixture;
+  const palette = ['#E3DCC8', '#4E3A1E', '#CDAE66', '#A99A78'];
+  const slotOf = (c: string) => Math.max(0, palette.indexOf(c.toUpperCase()));
+  const seq: number[] = [];
+  for (const b of f.warpBands) for (let k = 0; k < b.ends; k++) seq.push(slotOf(b.color));
+  const inp = bandedInput;
+  const weave: boolean[][] = [];
+  for (let r = 0; r < inp.weave.wefts; r++) {
+    const row: boolean[] = [];
+    for (let c = 0; c < inp.weave.warps; c++) row.push(inp.weave.data[r * inp.weave.warps + c] === 1);
+    weave.push(row);
+  }
+  const names = ['A', 'B', 'C', 'D'] as const;
+  return {
+    version: 2,
+    weave,
+    warpSlots: palette.map((color, k) => ({ name: names[k], count: f.yarn.count, system: f.yarn.unit, color, twist: f.yarn.twist })),
+    weftSlots: [{ name: 'A', count: f.yarn.count, system: f.yarn.unit, color: f.weft.color, twist: f.yarn.twist }],
+    warpSequence: seq,
+    weftSequence: [0],
+    warpDensityLoom: inp.density.warpPerCm,
+    weftDensityLoom: inp.density.weftPerCm,
+    warpShrinkPct: 0,
+    weftShrinkPct: 0,
+    warpCrimpShare: 0.4,
+  } as FabricSpec;
+}
+
+async function fixV2(phase: number, say: (t: string) => void) {
+  const out: Record<string, unknown> = { light: PROTO_LIGHT };
+  // 1) Yakın plan
+  {
+    const W = 1792;
+    const H = 820;
+    const target = await loadImage('/reference/realistic-v2/hedef_yakin_plan_v2.jpg');
+    const ours = renderBanded(W, H, 128, 100);
+    const c = document.createElement('canvas');
+    c.width = 2 * W + 8;
+    c.height = H;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, H);
+    g.drawImage(target, 0, 0, W, H);
+    g.drawImage(ours, W + 8, 0);
+    labelOn(g, 10, 10, 'Hedef (prototip v2)');
+    labelOn(g, W + 18, 10, 'Gerçekçi mod (fix-v2) — aynı desen, 128 px/mm, ışık 129°/37°');
+    await save(phase, 'compare_yakin.png', c.toDataURL('image/png'), 'png');
+    await save(phase, 'yakin_yeni.png', ours.toDataURL('image/png'), 'png');
+    out.yakin = { size: [W, H], pxPerMm: 128, offEnds: 100 };
+  }
+  // 2) Genel görünüm (tam rapor)
+  {
+    const W = 3263;
+    const H = 560;
+    const target = await loadImage('/reference/realistic-v2/hedef_genel_gorunum_v2.png');
+    const ours = renderBanded(W, H, 52, 0);
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = 2 * H + 8;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, W, c.height);
+    g.drawImage(target, 0, 0, W, H);
+    g.drawImage(ours, 0, H + 8);
+    labelOn(g, 10, 10, 'Hedef (prototip v2), tam rapor 251 tel');
+    labelOn(g, 10, H + 18, 'Gerçekçi mod (fix-v2), 52 px/mm');
+    await save(phase, 'compare_genel.png', c.toDataURL('image/png'), 'png');
+    out.genel = { size: [W, H], pxPerMm: 52 };
+  }
+  // 3) Eski CPU heightfield ↔ yeni gerçekçi (aynı desen, aynı pencere). CPU ipliği g'nin merkezi (g − 0.5)·p,
+  //    gerçekçide (i + 0.5)·p → aynı iplikler için CPU penceresi bir aralık geride.
+  {
+    const W = 896;
+    const H = 820;
+    const ppm = 128;
+    const inp = bandedInput;
+    const pw = 10 / inp.density.warpPerCm;
+    const pf = 10 / inp.density.weftPerCm;
+    const x0 = 100 * pw;
+    const y0 = pf - H / ppm;
+    const t0 = performance.now();
+    const cpu = simulatePhysical(bandedSpec(), { x0Mm: x0 - pw, y0Mm: y0 - pf, widthMm: W / ppm, heightMm: H / ppm, pxPerMm: ppm }, { scaleBar: false });
+    const cpuMs = performance.now() - t0;
+    const oldC = document.createElement('canvas');
+    oldC.width = cpu.image.width;
+    oldC.height = cpu.image.height;
+    oldC.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(cpu.image.data), cpu.image.width, cpu.image.height), 0, 0);
+    const ours = renderBanded(W, H, ppm, 100);
+    const c = document.createElement('canvas');
+    c.width = 2 * W + 8;
+    c.height = H;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, H);
+    g.drawImage(oldC, 0, 0);
+    g.drawImage(ours, W + 8, 0);
+    labelOn(g, 10, 10, 'Eski: CPU heightfield (simulatePhysical)');
+    labelOn(g, W + 18, 10, 'Yeni: gerçekçi mod fix-v2');
+    await save(phase, 'compare_eski_yeni.png', c.toDataURL('image/png'), 'png');
+    out.eskiYeni = { size: [W, H], pxPerMm: ppm, cpuMs: Math.round(cpuMs) };
+  }
+  // 4) Kalite seviyeleri (yakın plan kırpıntısı)
+  {
+    const W = 600;
+    const H = 400;
+    const c = document.createElement('canvas');
+    c.width = 3 * W + 16;
+    c.height = H;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, H);
+    (['high', 'medium', 'low'] as const).forEach((q, k) => {
+      const cv = document.createElement('canvas');
+      cv.width = W;
+      cv.height = H;
+      const r = createRealisticRenderer(cv, { preserveDrawingBuffer: true });
+      const pw = 10 / bandedInput.density.warpPerCm;
+      r.render(bandedInput, { pxPerCm: 1280, offsetCm: [(128 * pw) / 10, 0], light: PROTO_LIGHT, quality: q });
+      g.drawImage(cv, k * (W + 8), 0);
+      r.dispose();
+      labelOn(g, k * (W + 8) + 10, 10, q === 'high' ? 'yüksek' : q === 'medium' ? 'orta' : 'düşük');
+    });
+    await save(phase, 'quality_levels.png', c.toDataURL('image/png'), 'png');
+  }
+  await save(phase, 'fix-v2.json', JSON.stringify(out, null, 2), 'json');
+  say('fix-v2: ' + JSON.stringify(out));
+  return out;
+}
+
+async function run() {
+  const tagParam = new URLSearchParams(location.search).get('phase') ?? '1';
+  const fixTag = /^fix-v\d+$/.test(tagParam) ? tagParam : null;
+  // Düzeltme turu tüm kontrolleri (faz 6 dahil) çalıştırır
+  const phase = fixTag ? 6 : Math.max(1, parseInt(tagParam, 10) || 1);
+  SAVE_TAG = fixTag ?? phase;
+  const log = document.getElementById('log')!;
+  const grid = document.getElementById('grid')!;
+  const say = (t: string) => (log.textContent += t + '\n');
+  const report: Record<string, unknown> = { phase, size: SIZE, supported: isRealisticSupported(), samples: [] as unknown[] };
+  say(`Faz ${phase} · WebGL2 desteği: ${report.supported}`);
+  if (!report.supported) {
+    await save(phase, 'report.json', JSON.stringify(report, null, 2), 'json');
+    window.__snapshotsReport = report;
+    window.__snapshotsDone = true;
+    return;
+  }
+  for (const s of SAMPLES) {
+    const canvas = document.createElement('canvas');
+    canvas.width = SIZE;
+    canvas.height = SIZE;
+    const r = createRealisticRenderer(canvas, { preserveDrawingBuffer: true, debugView: phase === 1 ? 'flat' : phase === 2 ? 'preview' : 'lit' });
+    const view: ViewParams = { pxPerCm: s.pxPerCm, offsetCm: [0, 0], light: LIGHT, quality: 'high', ...(s.tuning ? { tuning: s.tuning } : {}) };
+    const t0 = performance.now();
+    r.render(s.input, view);
+    const pixels = r.readPixels(); // readPixels GPU'yu bekletir; süre kaba ölçümdür
+    const ms = performance.now() - t0;
+    const entry: Record<string, unknown> = { file: s.file, title: s.title, pxPerCm: s.pxPerCm, ms: +ms.toFixed(2) };
+    if (phase === 1) Object.assign(entry, compareFlat(pixels, s.input, view));
+    if (phase >= 2) entry.consistency = consistency(s);
+    if (phase >= 4) entry.determinism = determinism(s, view, pixels);
+    await save(phase, s.file, canvas.toDataURL('image/png'), 'png');
+    (report.samples as unknown[]).push(entry);
+    say(`${s.file}: ${JSON.stringify(entry)}`);
+    const fig = document.createElement('figure');
+    const img = new Image();
+    img.src = canvas.toDataURL('image/png');
+    img.width = 256;
+    fig.append(img, Object.assign(document.createElement('figcaption'), { textContent: s.title }));
+    grid.append(fig);
+    r.dispose();
+  }
+  if (phase >= 4) {
+    const det = (report.samples as Array<{ file: string; determinism?: { pass: boolean } }>).map((e) => ({ file: e.file, ...e.determinism }));
+    const summary = { allPass: det.every((d) => (d as { pass?: boolean }).pass), samples: det };
+    await save(phase, 'determinism.json', JSON.stringify(summary, null, 2), 'json');
+    say('Determinizm: ' + (summary.allPass ? 'GEÇTİ' : 'KALDI'));
+  }
+  if (phase >= 2) {
+    const list = (report.samples as Array<{ consistency?: { pass: boolean } }>).map((e) => e.consistency);
+    const summary = { allPass: list.every((c) => c && c.pass), samples: list };
+    await save(phase, 'consistency.json', JSON.stringify(summary, null, 2), 'json');
+    say('Tutarlılık: ' + (summary.allPass ? 'GEÇTİ' : 'KALDI'));
+  }
+  if (phase >= 5) report.calibration = await calibration(phase, say);
+  if (phase >= 6) report.perf = await perf(phase, say);
+  if (fixTag) report.fixV2 = await fixV2(phase, say);
+  await save(phase, 'report.json', JSON.stringify(report, null, 2), 'json');
+  window.__snapshotsReport = report;
+  window.__snapshotsDone = true;
+  say('Bitti.');
+}
+
+run().catch((e) => {
+  document.getElementById('log')!.textContent += 'HATA: ' + (e as Error).message + '\n';
+  window.__snapshotsReport = { error: (e as Error).message };
+  window.__snapshotsDone = true;
+});

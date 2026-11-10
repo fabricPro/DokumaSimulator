@@ -1,0 +1,63 @@
+{
+  "phase": 1,
+  "size": 1024,
+  "supported": true,
+  "samples": [
+    {
+      "file": "plain.png",
+      "title": "Bez ayağı",
+      "pxPerCm": 500,
+      "ms": 9.4,
+      "matchPct": 100,
+      "mismatches": 0
+    },
+    {
+      "file": "twill-2-2.png",
+      "title": "2/2 dimi",
+      "pxPerCm": 500,
+      "ms": 4.6,
+      "matchPct": 100,
+      "mismatches": 0
+    },
+    {
+      "file": "twill-3-1.png",
+      "title": "3/1 dimi",
+      "pxPerCm": 500,
+      "ms": 4.3,
+      "matchPct": 100,
+      "mismatches": 0
+    },
+    {
+      "file": "satin-5.png",
+      "title": "5'li saten",
+      "pxPerCm": 500,
+      "ms": 4.9,
+      "matchPct": 100,
+      "mismatches": 0
+    },
+    {
+      "file": "broken-twill-1-3.png",
+      "title": "1/3 kırık dimi",
+      "pxPerCm": 500,
+      "ms": 4.9,
+      "matchPct": 100,
+      "mismatches": 0
+    },
+    {
+      "file": "banded-warp.png",
+      "title": "Bantlı çözgü (tam rapor)",
+      "pxPerCm": 160,
+      "ms": 4.9,
+      "matchPct": 100,
+      "mismatches": 0
+    },
+    {
+      "file": "banded-warp-detail.png",
+      "title": "Bantlı çözgü (yakın plan)",
+      "pxPerCm": 500,
+      "ms": 6,
+      "matchPct": 100,
+      "mismatches": 0
+    }
+  ]
+}

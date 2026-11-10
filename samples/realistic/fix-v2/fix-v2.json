@@ -1,0 +1,29 @@
+{
+  "light": {
+    "azimuthDeg": 128.88449643371462,
+    "elevationDeg": 36.99082229705736
+  },
+  "yakin": {
+    "size": [
+      1792,
+      820
+    ],
+    "pxPerMm": 128,
+    "offEnds": 100
+  },
+  "genel": {
+    "size": [
+      3263,
+      560
+    ],
+    "pxPerMm": 52
+  },
+  "eskiYeni": {
+    "size": [
+      896,
+      820
+    ],
+    "pxPerMm": 128,
+    "cpuMs": 860
+  }
+}

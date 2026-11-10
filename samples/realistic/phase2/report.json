@@ -1,0 +1,112 @@
+{
+  "phase": 2,
+  "size": 1024,
+  "supported": true,
+  "samples": [
+    {
+      "file": "plain.png",
+      "title": "Bez ayağı",
+      "pxPerCm": 500,
+      "ms": 9.4,
+      "consistency": {
+        "file": "plain.png",
+        "idMatchTwinPct": 100,
+        "idMatchCpuPct": 100,
+        "dhTwinP999OverR": 0.00005,
+        "dhCpuP999OverR": 0.00005,
+        "dhCpuMaxOverR": 0.00007,
+        "pass": true
+      }
+    },
+    {
+      "file": "twill-2-2.png",
+      "title": "2/2 dimi",
+      "pxPerCm": 500,
+      "ms": 6.5,
+      "consistency": {
+        "file": "twill-2-2.png",
+        "idMatchTwinPct": 100,
+        "idMatchCpuPct": 100,
+        "dhTwinP999OverR": 0.00005,
+        "dhCpuP999OverR": 0.00005,
+        "dhCpuMaxOverR": 0.00007,
+        "pass": true
+      }
+    },
+    {
+      "file": "twill-3-1.png",
+      "title": "3/1 dimi",
+      "pxPerCm": 500,
+      "ms": 8.1,
+      "consistency": {
+        "file": "twill-3-1.png",
+        "idMatchTwinPct": 100,
+        "idMatchCpuPct": 100,
+        "dhTwinP999OverR": 0.00005,
+        "dhCpuP999OverR": 0.00005,
+        "dhCpuMaxOverR": 0.00007,
+        "pass": true
+      }
+    },
+    {
+      "file": "satin-5.png",
+      "title": "5'li saten",
+      "pxPerCm": 500,
+      "ms": 6.6,
+      "consistency": {
+        "file": "satin-5.png",
+        "idMatchTwinPct": 100,
+        "idMatchCpuPct": 100,
+        "dhTwinP999OverR": 0.00005,
+        "dhCpuP999OverR": 0.00005,
+        "dhCpuMaxOverR": 0.00007,
+        "pass": true
+      }
+    },
+    {
+      "file": "broken-twill-1-3.png",
+      "title": "1/3 kırık dimi",
+      "pxPerCm": 500,
+      "ms": 6.7,
+      "consistency": {
+        "file": "broken-twill-1-3.png",
+        "idMatchTwinPct": 100,
+        "idMatchCpuPct": 100,
+        "dhTwinP999OverR": 0.00005,
+        "dhCpuP999OverR": 0.00005,
+        "dhCpuMaxOverR": 0.00007,
+        "pass": true
+      }
+    },
+    {
+      "file": "banded-warp.png",
+      "title": "Bantlı çözgü (tam rapor)",
+      "pxPerCm": 160,
+      "ms": 6.8,
+      "consistency": {
+        "file": "banded-warp.png",
+        "idMatchTwinPct": 100,
+        "idMatchCpuPct": 100,
+        "dhTwinP999OverR": 0.00001,
+        "dhCpuP999OverR": 0.00001,
+        "dhCpuMaxOverR": 0.00001,
+        "pass": true
+      }
+    },
+    {
+      "file": "banded-warp-detail.png",
+      "title": "Bantlı çözgü (yakın plan)",
+      "pxPerCm": 500,
+      "ms": 7.9,
+      "consistency": {
+        "file": "banded-warp-detail.png",
+        "idMatchTwinPct": 100,
+        "idMatchCpuPct": 100,
+        "dhTwinP999OverR": 0.00009,
+        "dhCpuP999OverR": 0.00009,
+        "dhCpuMaxOverR": 0.0001,
+        "pass": true
+      }
+    }
+  ]
+}
