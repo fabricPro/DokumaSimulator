@@ -24,6 +24,9 @@ import { WeaveEditor } from './WeaveEditor';
 import type { BackgroundPref, DistancePref, QualityPref } from './RealisticLayer';
 import { CARD_WIDTH_MM, cssPxPerMm } from '../realistic/viewDistance';
 
+/** .atki.json çekme taşımaz; demo / içe aktarma yüklemesinde varsayılan çekme (VARSAYIM: çözgü boy %6, atkı en %10). */
+const DEMO_SHRINK = { warpPct: 6, weftPct: 10 };
+
 /** Ekran kalibrasyonu (CSS px / mm çarpanı) bu tarayıcıda saklanır; yoksa 96 dpi varsayımı (1). */
 const CALIB_KEY = 'dokuma.ekranKalibrasyonu';
 function loadCalib(): number {
@@ -79,9 +82,12 @@ export function App() {
   // Faz 6: gerçekçi görünüm (varsayılan kapalı; destek yoksa düğme sessizce devre dışı kalır)
   const [realOn, setRealOn] = useState(false);
   const [realQuality, setRealQuality] = useState<QualityPref>('auto');
-  const [realBackground, setRealBackground] = useState<BackgroundPref>('darkgray');
+  // Zemin: kullanıcı elle seçmediyse moda göre (Göz / Uzak 'açık' — arkası aydınlık perde; Lup 'koyu gri');
+  // elle seçildiyse mod değişince korunur
+  const [userBackground, setUserBackground] = useState<BackgroundPref | null>(null);
   // Bakış mesafesi (zoom'dan ayrı): Göz / Uzak fiziksel ölçek + ön filtre, Lup gerçekçi yakın görünüm
   const [distance, setDistance] = useState<DistancePref>('eye');
+  const realBackground: BackgroundPref = userBackground ?? (distance === 'loupe' ? 'darkgray' : 'light');
   const [screenCalib, setScreenCalib] = useState(loadCalib);
   const physPpm = cssPxPerMm(screenCalib);
   const [realUnavailable, setRealUnavailable] = useState(false);
@@ -130,22 +136,10 @@ export function App() {
     (mm: number) => setView((v) => ({ ...v, pxPerMm: Math.max(MIN_PPM, Math.min(MAX_PPM, paneSize.w / mm)) })),
     [paneSize.w],
   );
-  // Göz / Uzak: ölçek fiziksel (1 mm ekranda = 1 mm), zoom kilitli; Lup'a dönünce önceki zoom geri gelir
-  const physical = realOn && !realUnavailable && distance !== 'loupe';
-  const loupePpm = useRef<number | null>(null);
-  useEffect(() => {
-    if (physical) {
-      setView((v) => {
-        if (loupePpm.current === null) loupePpm.current = v.pxPerMm;
-        return { ...v, pxPerMm: physPpm };
-      });
-    } else if (loupePpm.current !== null) {
-      const back = loupePpm.current;
-      loupePpm.current = null;
-      setView((v) => ({ ...v, pxPerMm: back }));
-    }
-  }, [physical, physPpm]);
-  const onViewChange = useCallback((nv: MmView) => setView(physical ? { ...nv, pxPerMm: physPpm } : nv), [physical, physPpm]);
+  // Bakış modu bir filtredir, ölçek değil: zoom her modda serbest. "Gerçek boyut" ayrı bir zoom ön ayarı (ekran
+  // kalibrasyonuyla: ekranda 1 mm = kumaşta 1 mm).
+  const setRealSize = useCallback(() => setView((v) => ({ ...v, pxPerMm: physPpm })), [physPpm]);
+  const realSizeOn = Math.abs(view.pxPerMm - physPpm) < physPpm * 0.005;
   // İlk ölçümde 10 mm göster
   useEffect(() => {
     if (fitted.current || paneSize.w < 100) return;
@@ -247,7 +241,12 @@ export function App() {
         const iplikler = keepYarns && s.yarns?.length ? s.yarns : next.belge.iplikler;
         const out = atkiJsonToFabricSpec(next.belge.json, { ...next.belge, iplikler, varyantIndex: next.varyant, secenekler: next.secenekler });
         // önceki desenin tarağı / atkı sıklık raporu bu desene ait değil
-        return { ...s, ...out, reed: undefined, weftDensityReport: undefined };
+        // Çekme: ilk yüklemede varsayılan (çözgü boy %6, atkı en %10 — mamul sıklığı tezgahtan farklı olsun);
+        // varyant / seçenek değişiminde kullanıcının değeri korunur
+        const shrink = keepYarns
+          ? { warpShrinkPct: s.warpShrinkPct, weftShrinkPct: s.weftShrinkPct }
+          : { warpShrinkPct: DEMO_SHRINK.warpPct, weftShrinkPct: DEMO_SHRINK.weftPct };
+        return { ...s, ...out, ...shrink, reed: undefined, weftDensityReport: undefined };
       });
       setAtki(next);
       const v = next.belge.json.varyasyonlar[next.varyant];
@@ -459,11 +458,39 @@ export function App() {
           </div>
           <div className="seg">
             {AREAS_MM.map((mm) => (
-              <button key={mm} disabled={physical} className={Math.abs(shownMm - mm) < 0.05 ? 'on' : ''} onClick={() => setArea(mm)}>
+              <button key={mm} className={Math.abs(shownMm - mm) < 0.05 ? 'on' : ''} onClick={() => setArea(mm)}>
                 {mm} mm
               </button>
             ))}
           </div>
+          <button className={realSizeOn ? 'on' : ''} onClick={setRealSize} title="Gerçek boyut: ekranda 1 mm = kumaşta 1 mm (ekran kalibrasyonuyla)">
+            Gerçek boyut
+          </button>
+          <details className="atki-gelismis" title="Ekran kalibrasyonu: çubuğu bir kredi kartının genişliğine eşitleyin">
+              <summary>ekran</summary>
+              <div className="atki-gelismis-body">
+                <div style={{ width: CARD_WIDTH_MM * physPpm, height: 18, background: '#3fc0a0', borderRadius: 3 }} />
+                <span className="muted">Çubuğu kredi kartı genişliğine ({CARD_WIDTH_MM} mm) eşitleyin</span>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.6}
+                  step={0.005}
+                  value={screenCalib}
+                  onChange={(e) => {
+                    const v = +e.target.value;
+                    setScreenCalib(v);
+                    try {
+                      localStorage.setItem(CALIB_KEY, String(v));
+                    } catch {
+                      /* depolama kapalıysa yalnız bu oturum */
+                    }
+                  }}
+                />
+                <span className="muted">{(96 * screenCalib).toFixed(0)} dpi (CSS)</span>
+              </div>
+            </details>
+
           <span className="muted">
             {shownMm.toFixed(1)} mm · {view.pxPerMm.toFixed(0)} px/mm
           </span>
@@ -519,34 +546,9 @@ export function App() {
               <option value="loupe">Bakış: Lup</option>
             </select>
           )}
-          {realOn && distance !== 'loupe' && (
-            <details className="atki-gelismis" title="Ekran kalibrasyonu: çubuğu bir kredi kartının genişliğine eşitleyin">
-              <summary>ekran</summary>
-              <div className="atki-gelismis-body">
-                <div style={{ width: CARD_WIDTH_MM * physPpm, height: 18, background: '#3fc0a0', borderRadius: 3 }} />
-                <span className="muted">Çubuğu kredi kartı genişliğine ({CARD_WIDTH_MM} mm) eşitleyin</span>
-                <input
-                  type="range"
-                  min={0.6}
-                  max={1.6}
-                  step={0.005}
-                  value={screenCalib}
-                  onChange={(e) => {
-                    const v = +e.target.value;
-                    setScreenCalib(v);
-                    try {
-                      localStorage.setItem(CALIB_KEY, String(v));
-                    } catch {
-                      /* depolama kapalıysa yalnız bu oturum */
-                    }
-                  }}
-                />
-                <span className="muted">{(96 * screenCalib).toFixed(0)} dpi (CSS)</span>
-              </div>
-            </details>
-          )}
           {realOn && (
-            <select value={realBackground} onChange={(e) => setRealBackground(e.target.value as BackgroundPref)} title="Boşlukların zemini (arkadan ışık: perde ışık geçirgenliği)">
+            <select value={realBackground} onChange={(e) => setUserBackground(e.target.value as BackgroundPref)} title="Boşlukların zemini (açık: arkası aydınlık perde; arkadan ışık: ışık geçirgenliği). Elle seçilince mod değişince korunur.">
+              <option value="light">Zemin: açık</option>
               <option value="darkgray">Zemin: koyu gri</option>
               <option value="black">Zemin: siyah</option>
               <option value="backlight">Zemin: arkadan ışık</option>
@@ -601,7 +603,7 @@ export function App() {
               title="Tezgah"
               strips={showStrips && positions ? { warp: positions.warp, weft: positions.weft, which: 'loom' } : undefined}
               reedStrip={loomStrip}
-              onViewChange={onViewChange}
+              onViewChange={setView}
               realistic={realistic}
             />
           )}
@@ -615,7 +617,7 @@ export function App() {
             reedStrip={finishedStrip}
             weftLinks={mode === 'compare' ? weftLinks : undefined}
             shrinkLabel={shrinkLabel}
-            onViewChange={onViewChange}
+            onViewChange={setView}
             onInfo={setInfo}
             onSize={onSize}
             realistic={realistic}

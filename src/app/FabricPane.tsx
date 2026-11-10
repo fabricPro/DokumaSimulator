@@ -80,7 +80,8 @@ interface Props {
 }
 
 const FULL_DELAY_MS = 220;
-export const MIN_PPM = 15;
+/** En uzak zoom: 2 px/mm (≈ 30 cm'lik rapor tek panelde; "Gerçek boyut" ön ayarı ~3.8 px/mm bunun içinde). */
+export const MIN_PPM = 2;
 export const MAX_PPM = 600;
 const STRIP_PX = 6;
 
@@ -428,6 +429,7 @@ export function FabricPane({
           />
         </Suspense>
       )}
+      {realistic && <ScaleBar pxPerMm={view.pxPerMm} left={leftW + 12} />}
       {title && (
         <div className="pane-title" style={{ top: bandH + 8, left: leftW + 8 }}>
           {title}
@@ -438,6 +440,21 @@ export function FabricPane({
         {realistic && realText && <span className="real-status"> · {realText}</span>}
         {realistic && !layer && <span className="real-status"> · Gerçekçi: büyüteç için imleci kumaşın üstüne getirin</span>}
       </div>
+    </div>
+  );
+}
+
+/** Ölçek çubuğu (gerçekçi katmanın üstünde; CPU tuvalindeki 1 mm çubuğu katman altında kalıyordu): ~80 px'e en yakın
+ *  1-2-5 dizisi mm uzunluk. Tüm bakış modlarında görünür. */
+function ScaleBar({ pxPerMm, left }: { pxPerMm: number; left: number }) {
+  const target = 80 / pxPerMm;
+  const p10 = 10 ** Math.floor(Math.log10(target));
+  const mm = [1, 2, 5, 10].map((k) => k * p10).reduce((b, c) => (Math.abs(c - target) < Math.abs(b - target) ? c : b));
+  const label = mm >= 1 ? `${+mm.toFixed(0)} mm` : `${+mm.toFixed(2)} mm`;
+  return (
+    <div className="scale-overlay" style={{ left }}>
+      <div className="scale-overlay-bar" style={{ width: mm * pxPerMm }} />
+      <span>{label}</span>
     </div>
   );
 }

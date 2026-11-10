@@ -22,8 +22,9 @@ export const HAIR_BEND_SIGMA = 0.15;
 export const HAIR_LEN_MIN = 0.1;
 export const HAIR_LEN_MAX = 0.3;
 export const HAIR_SEGMENTS = 4;
-export const HAIR_ALPHA_MIN = 20 / 255;
-export const HAIR_ALPHA_MAX = 55 / 255;
+/** Opaklık: fix-v4'te 20–55/255 (tüysüz görünüm); 30–80/255 ×2.5 mürekkeple iplik üstünde gri perde yaptı → 25–60/255. VARSAYIM. */
+export const HAIR_ALPHA_MIN = 25 / 255;
+export const HAIR_ALPHA_MAX = 60 / 255;
 /** Ucu boşluğa taşan lif: kabul olasılığı ve opaklık çarpanı. */
 export const HAIR_GAP_ACCEPT = 0.3;
 export const HAIR_GAP_ALPHA = 0.25;

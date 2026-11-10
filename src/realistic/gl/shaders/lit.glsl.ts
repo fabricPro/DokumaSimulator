@@ -27,7 +27,7 @@
  *  - Tüylülük (D): pişirilmiş saydam lif katmanı; renk kök ipliğin ışıklı rengi ×1.05 + 4/255 (sRGB'de).
  * Tüm sayılar prototipten; VARSAYIM olarak gerçek numuneyle kalibre edilecek.
  */
-import { COMMON_GLSL } from './flat.glsl';
+import { COMMON_GLSL, FABRIC_WARP_GLSL } from './flat.glsl';
 
 /** Ortak: tamsayı hash (pcg3d) ve 2B değer gürültüsü. Faz 4'ün JS ikizi aynı bit işlemlerini kullanır. */
 export const NOISE_GLSL = /* glsl */ `
@@ -151,10 +151,14 @@ uniform sampler2D uGb0;
 uniform sampler2D uGb1;
 uniform sampler2D uGb2;
 uniform sampler2D uGb3;         // alt katman (fix-v3)
-uniform int uBg;                // zemin: 0 koyu gri, 1 siyah, 2 arkadan ışık
+uniform int uBg;                // zemin: 0 koyu gri, 1 siyah, 2 arkadan ışık, 3 açık
 uniform int uAnalyticN;         // 1: enine normal yuvarlak kesitten analitik (v2); 0: gb1'den (classic)
 uniform float uWhite;           // ton eşlemede beyaz noktası (pozlama sonrası doğrusal)
 uniform sampler2D uThreads;     // iplik tablosu (pack.ts threadTable): basıklık k
+uniform sampler2D uVarWarp;     // iplik başına ton sapması (4096 iplik periyotlu, döşemeden bağımsız)
+uniform sampler2D uVarWeft;
+uniform int uVarN;
+uniform float uVarTone;         // 0: pişirme (filtreli yol görüntülemede uygular)
 uniform sampler2D uThreadColor; // RGBA32F, döşeme periyodu × 2 (çözgü, atkı): doğrusal albedo
 uniform sampler2D uOccTile;     // pişirilmiş (ao, gölge) döşemesi, LINEAR + REPEAT
 uniform int uOccWindowed;       // 1: lup'ta uzun rapor — yalnız görünür pencere pişirildi (köken / boy mm)
@@ -187,6 +191,7 @@ uniform float uExposure;        // prototip ×1.25
 
 out vec4 outColor;
 ${COMMON_GLSL}
+${FABRIC_WARP_GLSL}
 ${NOISE_GLSL}
 vec3 toLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
@@ -226,9 +231,16 @@ vec3 fromOklab(vec3 c) {
              -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
              -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s);
 }
-// İplik albedosu (doğrusal, Faz 4 OKLab renk sapması dahil): iplik başına bir kez CPU'da (pack.ts threadColors)
+// İplik albedosu (doğrusal; pack.ts threadColors) × iplik başına ton sapması. Sapma döşeme periyoduyla değil, mutlak
+// iplik indeksiyle 4096 iplik periyotlu tablodan (rapor / döşeme tekrarında aynı ton dizisi tekrarlanmaz).
 vec3 threadBase(bool isWarp, int idx) {
-  return texelFetch(uThreadColor, ivec2(pmod(idx, isWarp ? uPeriod.x : uPeriod.y), isWarp ? 0 : 1), 0).rgb;
+  vec3 c = texelFetch(uThreadColor, ivec2(pmod(idx, isWarp ? uPeriod.x : uPeriod.y), isWarp ? 0 : 1), 0).rgb;
+  if (uVarTone > 0.0) {
+    ivec2 q = ivec2(pmod(idx, uVarN), 0);
+    vec3 v = isWarp ? texelFetch(uVarWarp, q, 0).rgb : texelFetch(uVarWeft, q, 0).rgb;
+    c *= 1.0 + uVarTone * v;
+  }
+  return c;
 }
 vec4 threadYarn(bool isWarp, int idx) {
   uint ty = isWarp
@@ -240,6 +252,9 @@ vec4 threadYarn(bool isWarp, int idx) {
 vec3 gapColor(float ao, float sh) {
   if (uBg == 1) return vec3(0.0);
   if (uBg == 2) return vec3(0.80, 0.78, 0.74);
+  // açık: sıcak açık gri — perdenin arkası aydınlık (iplikler önden ışıklı, siluet değil). VARSAYIM doğrusal 0.40/0.385/0.355
+  // (daha açık zemin %25 açıklıkta atkı etkili koyu teal bantları griye çekiyordu)
+  if (uBg == 3) return vec3(0.40, 0.385, 0.355) * (0.85 + 0.15 * ao * sh);
   return vec3(0.016) * (0.8 + 0.2 * ao * sh);
 }
 // Arkadan ışıkta iplik: koyu siluet + kalınlığa bağlı hafif geçirgenlik + kenar ışığı. v kesit içi, d çap
@@ -257,7 +272,7 @@ void main() {
   vec4 g2 = texelFetch(uGb2, p, 0);
   vec4 g3 = texelFetch(uGb3, p, 0);
   // AO ve gölge: pişirilmiş döşemeden (kumaş uzayı, mm mod döşeme; doğrusal süzgeç yumuşatır)
-  vec2 mm = uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY;
+  vec2 mm = fabricWarp(uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY);
   vec2 tuv = mm / uTileMm;
   vec2 occ = texture(uOccTile, uOccWindowed == 1 ? (mm - uOccOrigin) / uOccSpan : tuv).xy;
   float ao = occ.x;
@@ -364,42 +379,78 @@ uniform vec2 uOffsetMm;
 uniform vec2 uPxPerMmXY;
 out vec4 outColor;
 ${SRGB_GLSL}
+${FABRIC_WARP_GLSL}
 void main() {
-  vec2 mm = uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY;
+  vec2 mm = fabricWarp(uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY);
   outColor = vec4(toSrgb(texture(uColorTile, mm / uTileMm).rgb), 1.0);
 }
 `;
 
 /**
- * Göz / Uzak bakış (viewDistance.ts): fiziksel ölçekte, gözün çözemeyeceği detay önceden süzülür. Pişirilmiş
- * ışıklı renk döşemesinden (sRGB doku → doğrusal örnekleme) 3×3 Gauss (aralık σ) × mip seviyesi (texel ≈ σ/2):
- * renk karışımı doğrusal uzayda, sonra sRGB. Piksel ayak izi σ'dan büyükse mip ayak izine çıkar (aliasing yok).
+ * Filtreli yol görüntüleme (viewDistance.ts): kumaş mm'sinde ön süzülmüş, mip'li sRGB renk döşemesinden örnekleme.
+ * LOD donanımdan (uv türevleri = piksel ayak izi) → hiçbir zoomda alt-örnekleme / moiré yok; her karede filtre yok.
+ * İplik başına doğal sapma (ton, kalınlığın alan payı) burada, DÖŞEMEDEN BAĞIMSIZ: iplik indeksi kumaş mm'sinden,
+ * değer 4096 iplik periyotlu tablodan (mip'li; ayak izi > aralık iken kendiliğinden ortalanır).
  */
 export const VIEW_FS = /* glsl */ `#version 300 es
 precision highp float;
-uniform sampler2D uColorTile;
-uniform vec2 uTileMm;
+precision highp int;
+uniform sampler2D uColorTile;   // sRGB8_ALPHA8, mip'li (örnekleme doğrusal döner)
+uniform sampler2D uVarWarp;     // RGBA16F, N × 1: (r, g, b sapması, kalınlık), mip'li
+uniform sampler2D uVarWeft;
+uniform vec2 uOrigin;           // pişirilen bölge (mm): döşeme ya da görünür pencere
+uniform vec2 uSpan;
 uniform vec2 uOffsetMm;
 uniform vec2 uPxPerMmXY;
-uniform float uSigmaMm;         // ön filtre σ (mm)
-uniform float uTexPerMm;        // döşeme yoğunluğu (texel / mm)
+uniform vec2 uPitchMm;
+uniform int uVarN;
+uniform vec2 uVarAmp;           // (ton → doğrusal çarpan, kalınlık → alan payı)
 out vec4 outColor;
+${COMMON_GLSL}
 ${SRGB_GLSL}
+${FABRIC_WARP_GLSL}
 void main() {
-  vec2 mm = uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY;
-  vec2 uv = mm / uTileMm;
-  float pixTex = uTexPerMm / min(uPxPerMmXY.x, uPxPerMmXY.y);
-  float lod = max(0.0, max(log2(max(uSigmaMm * uTexPerMm * 0.5, 1e-3)), log2(max(pixTex, 1e-3))));
-  vec2 st = uSigmaMm / uTileMm;
+  vec2 mm = fabricWarp(uOffsetMm + (gl_FragCoord.xy - 0.5) / uPxPerMmXY);
+  vec3 c = texture(uColorTile, (mm - uOrigin) / uSpan).rgb;
+  // iplik başına sapma: ayak izi (iplik cinsinden) kadar mip seviyesi
+  vec2 fpT = (1.0 / uPxPerMmXY) / uPitchMm;
+  int i = pmod(int(floor(mm.x / uPitchMm.x)), uVarN);
+  int j = pmod(int(floor(mm.y / uPitchMm.y)), uVarN);
+  float n = float(uVarN);
+  vec4 vw = textureLod(uVarWarp, vec2((float(i) + 0.5) / n, 0.5), max(0.0, log2(max(fpT.x, 1e-3))));
+  vec4 vf = textureLod(uVarWeft, vec2((float(j) + 0.5) / n, 0.5), max(0.0, log2(max(fpT.y, 1e-3))));
+  vec3 f = 1.0 + 0.5 * (uVarAmp.x * (vw.rgb + vf.rgb) + uVarAmp.y * (vw.a + vf.a));
+  outColor = vec4(toSrgb(c * f), 1.0);
+}
+`;
+
+/**
+ * Algısal ön filtre (pişirmede bir kez): ayrılabilir Gauss, σ texel cinsinden (kumaş mm'si × yoğunluk),
+ * doğrusal uzayda (sRGB doku okunurken doğrusala, yazılırken sRGB'ye çevrilir). Döşemede sarmalı, pencerede kıskaç.
+ */
+export const PREFILTER_FS = /* glsl */ `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform ivec2 uSize;
+uniform ivec2 uDir;
+uniform float uSigma;
+uniform int uWrap;
+out vec4 outColor;
+${COMMON_GLSL}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  int R = int(min(ceil(3.0 * uSigma), 32.0));
   vec3 acc = vec3(0.0);
-  float wsum = 0.0;
-  for (int j = -1; j <= 1; j++) {
-    for (int i = -1; i <= 1; i++) {
-      float w = exp(-0.5 * float(i * i + j * j));
-      acc += w * textureLod(uColorTile, uv + vec2(float(i), float(j)) * st, lod).rgb;
-      wsum += w;
-    }
+  float ws = 0.0;
+  for (int k = -32; k <= 32; k++) {
+    if (k < -R || k > R) continue;
+    float w = exp(-0.5 * float(k * k) / (uSigma * uSigma));
+    ivec2 q = p + uDir * k;
+    q = uWrap == 1 ? ivec2(pmod(q.x, uSize.x), pmod(q.y, uSize.y)) : clamp(q, ivec2(0), uSize - 1);
+    acc += w * texelFetch(uSrc, q, 0).rgb;
+    ws += w;
   }
-  outColor = vec4(toSrgb(acc / wsum), 1.0);
+  outColor = vec4(acc / ws, 1.0);
 }
 `;

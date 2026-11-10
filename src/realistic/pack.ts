@@ -136,8 +136,15 @@ export function threadTable(
  * fix-v3 iplik renk tablosu (GPU uThreadColor, RGBA32F, genişlik max(px, py), 2 satır: çözgü, atkı): doğrusal
  * albedo + Faz 4 OKLab renk sapması (eskiden ışık geçişinde her pikselde iki kez OKLab dönüşümü yapılıyordu).
  */
-export function threadColors(input: FabricInput, period: [number, number], irregularityMul = 1): { width: number; data: Float32Array } {
+export function threadColors(
+  input: FabricInput,
+  period: [number, number],
+  irregularityMul = 1,
+  withTone = true,
+): { width: number; data: Float32Array } {
   const ir = resolveIrregularity(input, irregularityMul);
+  // withTone = false: ton sapması döşemeye konmaz (renderer onu görüntülemede uzun periyotlu tablodan uygular)
+  if (!withTone) ir.colorDeltaE = 0;
   const width = Math.max(period[0], period[1]);
   const data = new Float32Array(width * 2 * 4);
   for (const ax of [0, 1] as const) {

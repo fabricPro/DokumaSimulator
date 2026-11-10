@@ -246,3 +246,8 @@ button.link:hover { color: var(--text); }
 .atki-gelismis summary { cursor: pointer; opacity: 0.8; }
 .atki-gelismis-body { position: absolute; z-index: 20; top: 100%; left: 0; display: flex; flex-direction: column; gap: 6px;
   padding: 8px 10px; background: var(--panel, #1d2026); border: 1px solid var(--line); border-radius: 6px; white-space: nowrap; }
+
+/* ölçek çubuğu (gerçekçi katman üstünde) */
+.scale-overlay { position: absolute; bottom: 30px; z-index: 6; pointer-events: none; display: flex; flex-direction: column; gap: 3px;
+  font-size: 11px; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; }
+.scale-overlay-bar { height: 4px; background: #fff; box-shadow: 0 0 2px #000; }

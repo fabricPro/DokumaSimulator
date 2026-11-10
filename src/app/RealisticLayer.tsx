@@ -29,7 +29,7 @@ import { fabricInputFromSpec } from '../realistic/adapters/fromSpec';
 
 export type QualityPref = Quality | 'auto';
 /** Gerçekçi görünümde boşlukların zemini (fix-v3): koyu gri, siyah, arkadan ışık (perde ışık geçirgenliği). */
-export type BackgroundPref = 'darkgray' | 'black' | 'backlight';
+export type BackgroundPref = 'darkgray' | 'black' | 'backlight' | 'light';
 /** Bakış mesafesi (realistic/viewDistance.ts): Göz 40 cm, Uzak 2 m (fiziksel ölçek + ön filtre), Lup. */
 export type DistancePref = 'eye' | 'far' | 'loupe';
 
@@ -157,6 +157,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
           quality: level.quality,
           tuning: { background },
           distance,
+          navigating: moving,
         });
       } catch {
         onStateRef.current({ ok: false, text: '' });

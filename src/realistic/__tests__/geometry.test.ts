@@ -248,8 +248,8 @@ describe('v2 temas tabanlı z (fix-v3)', () => {
     for (let j = 0; j < 4; j++)
       for (let i = 0; i < 4; i++) {
         const z = crossingZ(i, j, g);
-        expect(tab[(j * 4 + i) * 2]).toBeCloseTo(z.zw, 6);
-        expect(tab[(j * 4 + i) * 2 + 1]).toBeCloseTo(z.zf, 6);
+        expect(tab[(j * 4 + i) * 4]).toBeCloseTo(z.zw, 6);
+        expect(tab[(j * 4 + i) * 4 + 1]).toBeCloseTo(z.zf, 6);
       }
   });
 

@@ -193,33 +193,50 @@ bir kez pişirilir. Pan / zoom anahtara girmez; yalnız `mm mod döşeme` ile d�
 - `r.stats().tile`: döşeme boyu (mm), texel boyutu, pişirme süresi, lif sayısı. `bakeMs` yalnız pişirme
   yapılan karede dolu.
 
-## 6b. Bakış mesafesi (Göz / Uzak / Lup) — Tezgah'ta varsayılan **Göz**
+## 6b. Bakış modu (Göz / Uzak / Lup) — Tezgah'ta varsayılan **Göz**
 
-`viewDistance.ts` (saf, testli). Zoom'dan ayrı bir seçicidir; Tezgah entegrasyonunda varsayılan görünüm
-`distance: 'eye'` olmalıdır:
+`viewDistance.ts` (saf, testli). Bakış modu bir **ölçek değil, kumaş uzayında algısal filtredir**; zoom her modda
+serbesttir. Tezgah entegrasyonunda varsayılan `distance: 'eye'`:
 
 ```ts
-const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // gerçek ölçek: ekranda 1 mm = 1 mm
-r.render(input, { ...view, pxPerCm: pxPerMm * 10, distance: 'eye' }); // 'eye' | 'far' | 'loupe'
+r.render(input, { ...view, distance: 'eye' }); // 'eye' | 'far' | 'loupe'; pxPerCm = kullanıcının zoom'u
+// "Gerçek boyut" ayrı bir zoom ön ayarıdır (bakış moduyla karışmaz):
+const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // ekranda 1 mm = kumaşta 1 mm
 ```
 
-- **Göz (40 cm) / Uzak (2 m):** kumaş gerçek fiziksel ölçekte çizilir. CSS pikseli için varsayılan 96 dpi
-  (VARSAYIM); kullanıcı ayarlarında ekrandaki çubuğu bir kredi kartı genişliğine (85.6 mm, `CARD_WIDTH_MM`)
-  eşitleyerek çarpanı kalibre eder (Dokuma Simülatörü'nde "ekran" bölümü, tarayıcıda saklanır).
-- Gözün o mesafede ayırt edemeyeceği detay önceden süzülür: 1 yay dakikası çözünürlük (40 cm ≈ 0.12 mm,
-  2 m ≈ 0.58 mm); Gauss σ = max(2 × çözünürlük, 0.35 × en büyük iplik aralığı) (VARSAYIM). Renk karışımı
-  doğrusal uzayda (sRGB doku + mip); iplik içi büküm / lif ve iplik araları komşu renklerle kaynaşır, örgü
-  dokusu, dimi çizgisi ve bant / renk deseni korunur. Ayrı iplikler ve siyah boşluklar görünmez.
-- Önbellek: tüm rapor **düşük çözünürlükte** (σ başına ≥ 4 texel, ≤ 24 texel/mm) ışıklı renk döşemesine bir
-  kez pişirilir; gezinme yalnız döşemeyi süzerek okur. Uzun raporlar (LHOTSE ~40 cm) lup çözünürlüğünde
-  pişirilmez.
-- **Lup:** mevcut gerçekçi yakın görünüm. Uzun raporda döşeme lup çözünürlüğüne sığmıyorsa ao / gölge yalnız
-  görünür pencere (×2) için pişirilir; görünüm pencereden çıkınca yeniden.
+- **Filtre çapı** (Gauss FWHM, kumaş üzerinde, mm) = 1 yay dakikası × mesafe: Göz (40 cm) 0.116 mm, Uzak (2 m)
+  0.582 mm, Lup 0 (`filterFwhmMm`; σ = FWHM / 2.355). Çekirdek kumaşa bağlıdır, zoom'la birlikte ölçeklenir:
+  yakınlaştırınca "bu mesafeden gözün gördüğü kumaşın büyütülmüş hali" görünür. İplik içi detay (kat / büküm
+  şeridi, lif) periyodu < 2 × çap ise analitik söner, tüy pişirilmez; örgü dokusu, dimi çizgisi, iplik yönü kalır.
+- **Otomatik LOD:** her modda piksel ayak izi daha büyükse ayak izine eşit minimum filtre (`effectiveFwhmMm`):
+  ön süzülmüş döşemenin mip seviyesi donanımca seçilir. Lup'ta iplik 3 pikselin altına inince (`useFilteredPath`)
+  keskin ekran yolu yerine aynı filtreli yol kullanılır (aliasing / "tel elek" yok).
+- **Önbellek:** filtreli yol ışıklı sahneyi bir kez pişirir, kumaş mm'sinde ayrılabilir Gauss ile ön süzer
+  (doğrusal uzay, sRGB doku) ve mip'ler; gezinmede yalnız örnekler. Yoğunluk 2'nin kuvveti kovasıdır
+  (`filteredBakeDensity`: ≥ 3 texel / en ince iplik, ≤ 8 texel / FWHM, ≤ ekran, ≤ 64 /mm); zoom yalnız kova
+  değiştirince yeniden pişirir. Döşeme sığmazsa (kenar ≤ MAX_TEXTURE_SIZE, ≤ 8 M texel) görünür pencere pişer.
+- **İplik başına sapma** (ton ΔE, kalınlık) filtreli yolda döşemeye pişirilmez; görüntülemede kumaş mm'sinden
+  hesaplanan iplik indeksiyle 4096 iplik periyotlu tablodan uygulanır (≥ 20 döşeme; 12 mm'lik döşemede tekrar
+  eden düzenli şerit oluşmaz).
+- **Zemin:** Göz / Uzak'ta varsayılan `background: 'light'` (sıcak açık gri; arkası aydınlık perde), Lup'ta
+  `'darkgray'`; kullanıcının elle seçtiği zemin mod değişince korunur.
+- **Ekran kalibrasyonu** ("Gerçek boyut" için): CSS 96 dpi varsayımı (VARSAYIM); ekrandaki çubuğu kredi kartı
+  genişliğine (85.6 mm, `CARD_WIDTH_MM`) eşitleyerek çarpan ayarlanır.
+- **Lup keskin yol:** uzun raporda döşeme lup çözünürlüğüne sığmıyorsa ao / gölge yalnız görünür pencere (×2)
+  için pişirilir; görünüm pencereden çıkınca yeniden.
+- **Gezinme:** pan / zoom sürerken `navigating: true` verin (Dokuma Simülatörü 150 ms içindeki ardışık görünüm
+  değişimini gezinme sayar). Filtreli yolda yoğunluk kovası değişse de mevcut pişirme (mip) okunur, yeniden
+  pişirme durunca yapılır; Lup'ta keskin yol yerine filtreli yol kullanılır (her karede G-buffer + ışık yok).
+  Keskin ve filtreli yolun önbellekleri ayrıdır; geçişte yeniden pişirme olmaz.
+- **Kumaş ölçeğinde doğal düzensizlik** (`tuning.fabricIrregularity`, varsayılan 1, 0 = kapalı): atkı sıklığında
+  barre (±%2.5), çözgü sapması (0.12 mm), atkı yayı (0.10 mm) — kumaş koordinatının yavaş bükümü, dalga boyları
+  37–213 mm (rapordan bağımsız); iplik ton farkı ΔE (`irregularity.colorDeltaE`) 4096 iplik periyotlu tablodan.
+  Seed'e bağlı, deterministik.
 
 ## 7. Yalnız yakın görünüm / büyüteç
 
 Lup modunda gerçekçi görünüm uzak ölçekte bilgi katmaz ve GPU'yu boşa harcar. Önerilen kullanım (Dokuma
-Simülatörü'nde uygulanan; Göz / Uzak'ta katman her zaman tüm paneli örter):
+Simülatörü'nde uygulanan; Göz / Uzak'ta katman her zaman tüm paneli örter, ölçek çubuğu katmanın üstündedir):
 
 - **Yakında** (≥ 100 px/mm): tüm kumaş paneli gerçekçi katmanla örtülür. Katman, mevcut görünümün tam
   üstünde aynı mm ↔ piksel eşlemesiyle durur.

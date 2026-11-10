@@ -20,7 +20,10 @@ export type { RealisticPreset, YarnSurface } from './presets';
 export {
   VIEW_DISTANCE_MM,
   resolvableMm,
-  viewBlurMm,
+  filterFwhmMm,
+  effectiveFwhmMm,
+  useFilteredPath,
+  filteredBakeDensity,
   cssPxPerMm,
   CARD_WIDTH_MM,
   CSS_DPI,

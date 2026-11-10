@@ -112,9 +112,14 @@ export interface Tuning {
    * Zemin (boşluk) görünümü (fix-v3): 'darkgray' (varsayılan, doğrusal ≈ 0.02), 'black', 'backlight' (arkadan
    * ışık: boşluklar aydınlık, iplikler koyu siluet + hafif kenar ışığı; perde ışık geçirgenliği).
    */
-  background?: 'darkgray' | 'black' | 'backlight';
+  background?: 'darkgray' | 'black' | 'backlight' | 'light';
   /** Kontakt gölge şiddeti (üst iplik → alttaki iplik; 0.4·d genişlik). 0 = kapalı, varsayılan 1. */
   contactShadow?: number;
+  /**
+   * Kumaş ölçeğinde doğal düzensizlik çarpanı (barre ±%2.5, çözgü sapması, atkı yayı; rapordan bağımsız uzun periyot).
+   * 0 = kapalı, varsayılan 1. Seed'e bağlı, deterministik.
+   */
+  fabricIrregularity?: number;
   /** İplik yayılması çarpanı (Durak 2-E; 0 = sert yuvarlak kesit, 1 = varsayılan tip modeli). */
   spread?: number;
   /** Ton eşleme beyaz noktası (pozlama sonrası doğrusal; küçük = daha erken sıkıştırır). Varsayılan 2. */
@@ -130,10 +135,15 @@ export interface ViewParams {
   quality: Quality;
   tuning?: Tuning;
   /**
-   * Bakış mesafesi (viewDistance.ts): 'eye' Göz 40 cm, 'far' Uzak 2 m — fiziksel ölçek + gözün çözemeyeceği detayın
-   * ön filtresi (pxPerCm'i çağıran fiziksel ölçeğe göre verir); 'loupe' (varsayılan) gerçekçi yakın görünüm.
+   * Bakış mesafesi (viewDistance.ts): bir ÖLÇEK değil, kumaş uzayında algısal FİLTRE. 'eye' Göz 40 cm (çap 0.116 mm),
+   * 'far' Uzak 2 m (0.582 mm), 'loupe' (varsayılan) filtre yok. Zoom (pxPerCm) her modda serbest.
    */
   distance?: 'eye' | 'far' | 'loupe';
+  /**
+   * Etkin gezinme (pan / zoom) sürüyor: filtreli yolda mevcut pişirme yoğunluk kovası değişse de yeniden pişirilmez
+   * (mip'ten okunur); Lup'ta da keskin yol yerine filtreli yol kullanılır. Durunca false verin.
+   */
+  navigating?: boolean;
 }
 
 /** Son karelerin süre ölçümü (Faz 6). */
@@ -182,4 +192,9 @@ export interface RendererOptions {
   profile?: 'desktop' | 'mobile';
   /** Hata ayıklama / ölçüm: katmanlı çizimi kapat (yalnız üst iplik, kenar yumuşatma yok). Varsayılan false. */
   singleLayer?: boolean;
+  /**
+   * Hata ayıklama / ölçüm (şerit nedenlerini ayırmak için; uygulama kullanmaz): filtreli yolda iplik başına sapmayı
+   * eskisi gibi döşemeye pişir (`bakeVariation`, döşeme periyotlu) ya da pişirme yoğunluğunu zorla (`density`).
+   */
+  debugFilter?: { bakeVariation?: boolean; density?: number };
 }

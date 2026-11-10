@@ -95,7 +95,9 @@ export function flatteningV2(diameterMm: number, pitchMm: number, factor = 1, st
 export const SPREAD_MAX: Record<SpreadKind, number> = { filament: 1.3, textured: 1.22, spunSingle: 1.06, spunPlied: 1.04, tape: 1 };
 export const SPREAD_CLOSE: Record<SpreadKind, number> = { filament: 0.9, textured: 0.8, spunSingle: 0.7, spunPlied: 0.6, tape: 0 };
 type SpreadKind = 'filament' | 'textured' | 'spunSingle' | 'spunPlied' | 'tape';
-const ASPECT_CAP: Record<string, number> = { spun: 1.6, textured: 1.8, filament: 2.4, tape: TAPE_ASPECT };
+/** En/boy üst sınırı. VARSAYIM: tek katlı eğrilmiş sınırlı yassılaşır (≤ 1.3; büküm lifleri bir arada tutar),
+ *  çok katlı 1.6, tekstüre 1.8, filament 2.4 (lifler serbestçe yayılır), bant 3. */
+const ASPECT_CAP: Record<string, number> = { spun: 1.6, spunSingle: 1.3, textured: 1.8, filament: 2.4, tape: TAPE_ASPECT };
 
 function spreadKind(structure?: string, plies = 2): SpreadKind {
   if (structure === 'filament' || structure === 'textured' || structure === 'tape') return structure;
@@ -143,7 +145,8 @@ export function crossSectionAspect(
   if (structure === 'tape') return TAPE_ASPECT;
   const k = flatteningV2(diameterMm, pitchMm, flattenFactor, structure);
   const s = spreadFactor(diameterMm, pitchMm, structure, plies, spreadMul, crossFill);
-  let A = Math.min(k * s * s, ASPECT_CAP[structure ?? 'spun'] ?? 1.6);
+  const capKey = (structure ?? 'spun') === 'spun' && plies <= 1 ? 'spunSingle' : (structure ?? 'spun');
+  let A = Math.min(k * s * s, ASPECT_CAP[capKey] ?? 1.6);
   // genişlik d·√A aralığı aşmasın (iplik zaten aralıktan kalınsa yalnız yayılmaz)
   const wMax = Math.max(0.98 * pitchMm, diameterMm);
   if (diameterMm * Math.sqrt(A) > wMax) A = (wMax / diameterMm) ** 2;
@@ -211,7 +214,7 @@ const semiH = (r: number, k: number) => r / Math.sqrt(k);
  * D_atkı = c·(max b_w (atkının koşusunda) + b_f(j)), c = compressionFactor (açık dokuda 1).
  * Bağlantıda (koşu = 1) z_w − z_f = c·(b_w + b_f); açık dokuda = b_w + b_f.
  */
-export function crossingZ(i: number, j: number, g: GeometryParams): { zw: number; zf: number } {
+export function crossingZ(i: number, j: number, g: GeometryParams): { zw: number; zf: number; floatW: boolean; floatF: boolean } {
   const up = g.warpUp(i, j);
   const s = up ? 1 : -1;
   const beta = g.crimpShare;
@@ -233,11 +236,32 @@ export function crossingZ(i: number, j: number, g: GeometryParams): { zw: number
   // doluluk: çap / aralık (b ≈ r; basık iplikte biraz küçük kalır)
   const cw = compressionFactor(Math.max((2 * bwi) / g.pitchWarp, (2 * bf) / g.pitchWeft));
   const cf = compressionFactor(Math.max((2 * bw) / g.pitchWarp, (2 * bfj) / g.pitchWeft));
-  return { zw: s * beta * cw * (bwi + bf), zf: -s * (1 - beta) * cf * (bw + bfj) };
+  // Uzun atlama bayrakları: bu kesişim, ipliğin aynı durum koşusunun (flotte) içinde mi
+  const floatW = g.warpUp(i, j + 1) === up || g.warpUp(i, j - 1) === up;
+  const floatF = g.warpUp(i + 1, j) === up || g.warpUp(i - 1, j) === up;
+  return { zw: s * beta * cw * (bwi + bf), zf: -s * (1 - beta) * cf * (bw + bfj), floatW, floatF };
 }
 
 /**
- * v2 kesişim tablosu (GPU uCross dokusu): döşeme periyodu (px × py kesişim) için (z_w, z_f), satır = atkı.
+ * Krepaj geçişi (iki kesişim arasında, t ∈ [0, 1]): cosine (1 − cos πt)/2. Bir uç flotte (uzun atlama) içindeyse iplik
+ * oradan düz çıkar ve bükülme bağlantı ucunda yoğunlaşır: f = g^P (bükülme t = 1'de) ya da 1 − (1 − g)^P (t = 0'da).
+ * Böylece flotteye komşu segment baştan sona eğimli kalmaz (segmentler arası ışık basamağı / "dikiş" yok); uçlarda
+ * eğim 0, yol ve normal sürekli. VARSAYIM: P = 2 (bükülme boyu ≈ iplik yarıçapı mertebesi; 2.5 bağlantıda sert parlama çizgisi yaptı).
+ */
+export const CRIMP_FLOAT_EASE = 2;
+export function crimpEase(t: number, float0: boolean, float1: boolean): { f: number; df: number } {
+  const x = Math.min(1, Math.max(0, t));
+  const g = (1 - Math.cos(Math.PI * x)) / 2;
+  const dg = (Math.PI / 2) * Math.sin(Math.PI * x);
+  const P = CRIMP_FLOAT_EASE;
+  if (float0 && !float1) return { f: g ** P, df: P * g ** (P - 1) * dg };
+  if (float1 && !float0) return { f: 1 - (1 - g) ** P, df: P * (1 - g) ** (P - 1) * dg };
+  return { f: g, df: dg };
+}
+
+/**
+ * v2 kesişim tablosu (GPU uCross dokusu, RGBA32F): döşeme periyodu (px × py kesişim) için (z_w, z_f, çözgü flotte,
+ * atkı flotte), satır = atkı.
  * Düzensizlik (kalınlık) indeks mod periyotla — shader'daki threadRand ile aynı.
  */
 export function crossingTable(g: GeometryParams, px: number, py: number): Float32Array {
@@ -247,12 +271,11 @@ export function crossingTable(g: GeometryParams, px: number, py: number): Float3
     warpRadius: (i) => g.warpRadius(pmod(i, px)),
     weftRadius: (j) => g.weftRadius(pmod(j, py)),
   };
-  const out = new Float32Array(px * py * 2);
+  const out = new Float32Array(px * py * 4);
   for (let j = 0; j < py; j++) {
     for (let i = 0; i < px; i++) {
       const z = crossingZ(i, j, gp);
-      out[(j * px + i) * 2] = z.zw;
-      out[(j * px + i) * 2 + 1] = z.zf;
+      out.set([z.zw, z.zf, z.floatW ? 1 : 0, z.floatF ? 1 : 0], (j * px + i) * 4);
     }
   }
   return out;
@@ -311,40 +334,39 @@ function slope(u: number, a: number, b: number, scale = PROFILE_SCALE): number {
 function geometryAtV2(X: number, Y: number, g: GeometryParams): GeometrySample {
   const pw = g.pitchWarp;
   const pf = g.pitchWeft;
-  const dStep = (t: number) => (Math.PI / 2) * Math.sin(Math.PI * t);
   let best = { h: -1e3, axis: 0 as 0 | 1 | 2, index: 0, v: 0, a: 0, grad: [0, 0] as [number, number] };
 
   // Çözgü adayları: kesit x, yol y boyunca kesişim z'lerinden
   const iv = interval(Y, pf, g.weftCenter);
-  const fW = cosStep01(iv.s);
-  const dsW = dStep(iv.s) / (g.weftCenter(iv.k0 + 1) - g.weftCenter(iv.k0));
+  const spanW = g.weftCenter(iv.k0 + 1) - g.weftCenter(iv.k0);
   const i0 = Math.floor(X / pw);
   for (const i of [i0 - 1, i0, i0 + 1]) {
     const { a, b } = ellipseAxes(g.warpRadius(i), g.warpFlat?.(i) ?? 1);
     const dx = X - g.warpCenter(i);
     if (!(Math.abs(dx) < a)) continue;
-    const z0 = crossingZ(i, iv.k0, g).zw;
-    const z1 = crossingZ(i, iv.k0 + 1, g).zw;
+    const c0 = crossingZ(i, iv.k0, g);
+    const c1 = crossingZ(i, iv.k0 + 1, g);
+    const e = crimpEase(iv.s, c0.floatW, c1.floatW);
     const u = dx / a;
-    const h = z0 + (z1 - z0) * fW + b * Math.sqrt(Math.max(0, 1 - u * u));
-    if (h > best.h) best = { h, axis: 1, index: i, v: u, a, grad: [slope(u, a, b, 1), (z1 - z0) * dsW] };
+    const h = c0.zw + (c1.zw - c0.zw) * e.f + b * Math.sqrt(Math.max(0, 1 - u * u));
+    if (h > best.h) best = { h, axis: 1, index: i, v: u, a, grad: [slope(u, a, b, 1), ((c1.zw - c0.zw) * e.df) / spanW] };
   }
 
   // Atkı adayları; eşitlikte çözgü üstte
   const ih = interval(X, pw, g.warpCenter);
-  const fF = cosStep01(ih.s);
-  const dsF = dStep(ih.s) / (g.warpCenter(ih.k0 + 1) - g.warpCenter(ih.k0));
+  const spanF = g.warpCenter(ih.k0 + 1) - g.warpCenter(ih.k0);
   const j0 = Math.floor(Y / pf);
   const bestWarpH = best.axis === 1 ? best.h : -1e3;
   for (const j of [j0 - 1, j0, j0 + 1]) {
     const { a, b } = ellipseAxes(g.weftRadius(j), g.weftFlat?.(j) ?? 1);
     const dy = Y - g.weftCenter(j);
     if (!(Math.abs(dy) < a)) continue;
-    const z0 = crossingZ(ih.k0, j, g).zf;
-    const z1 = crossingZ(ih.k0 + 1, j, g).zf;
+    const c0 = crossingZ(ih.k0, j, g);
+    const c1 = crossingZ(ih.k0 + 1, j, g);
+    const e = crimpEase(ih.s, c0.floatF, c1.floatF);
     const u = dy / a;
-    const h = z0 + (z1 - z0) * fF + b * Math.sqrt(Math.max(0, 1 - u * u));
-    if (h > best.h && h > bestWarpH) best = { h, axis: 2, index: j, v: u, a, grad: [(z1 - z0) * dsF, slope(u, a, b, 1)] };
+    const h = c0.zf + (c1.zf - c0.zf) * e.f + b * Math.sqrt(Math.max(0, 1 - u * u));
+    if (h > best.h && h > bestWarpH) best = { h, axis: 2, index: j, v: u, a, grad: [((c1.zf - c0.zf) * e.df) / spanF, slope(u, a, b, 1)] };
   }
 
   if (best.axis === 0) return { height: g.bgHeight, axis: 0, index: 0, id: 0, v: 0, a: 0, grad: [0, 0] };
