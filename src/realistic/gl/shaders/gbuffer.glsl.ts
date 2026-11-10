@@ -12,7 +12,7 @@
  *
  * Çıkışlar (MRT):
  *   gb0 (RGBA32F/16F) = (yükseklik mm, iplik boyu konumu mm mod 16, v = kesit içi −1..1, iplik indeksi i / j)
- *   gb1 (RGBA32F/16F) = (normal.x, normal.y (taban + rölyef), sistem 0 zemin / 1 çözgü / 2 atkı, üst kapsama 0..1)
+ *   gb1 (RGBA32F/16F) = (normal.x, normal.y (v2: boyunca eğim + kat bombesi; classic: tam taban), sistem 0 zemin / 1 çözgü / 2 atkı, üst kapsama 0..1)
  *   gb2 (RGBA16F, mip'li) = (kat profili 0..1, ince lif −1..1, lif gürültüsü, yükseklik / r_ref)
  *     .w AO'da mip zinciriyle kutu ortalaması için (prototip uniform_filter).
  *   gb3 (RGBA16F) = alt katman (indeks, sistem + 0.9·kenar kapsaması, taban normal.x, normal.y); sistem 0 = zemin.
@@ -71,6 +71,8 @@ layout(location = 3) out vec4 gb3;
 ${COMMON_GLSL}
 ${NOISE_GLSL}
 const float PI = 3.14159265;
+// Kat bombesinin yükseklik payı (iplik profilinin oranı): h += prof·PLY_H·(ply − 0.76). VARSAYIM (kalibre edilecek)
+const float PLY_H = 0.26;
 float threadRand(int axis, int idx, int ch) {
   int per = axis == 0 ? uPeriod.x : uPeriod.y;
   return hash01(ivec2(pmod(idx, per), axis * 16 + ch), uSeed) * 2.0 - 1.0;
@@ -97,10 +99,15 @@ float slope(float u, float a, float b, float sc) { return -sc * b * u / (a * sqr
 
 float bandLimit(float periodPx) { return clamp((periodPx - 2.0) * 0.5, 0.0, 1.0); }
 
-// v2 rölyef terimleri (relief.ts ile aynı). s = eksen boyunca mm, u = kesit içi −1..1, cross = enine mm (Z yönü işaretli)
-// Dönüş: (kat profili, ince lif, lif gürültüsü)
+// v2 rölyef terimleri. s = eksen boyunca mm, u = kesit içi −1..1, cross = enine mm (Z yönü işaretli), a = kesit yarı
+// genişliği mm, fp = piksel ayak izi mm.
+// Dönüş: (kat profili, ince lif, lif gürültüsü). fix-v4: ince lif şeritleri (diyagonal sinüs) gri ipliklerde kafes /
+// denim moiré'si yaptığı için eğrilmiş iplikte 0 (yalnız bantta filament çizgisi); kat profili albedoya değil
+// yüksekliğe girer, gradyanı dPly (d/boyunca, d/enine; band sınırlamalı) analitik verilir → kat kendi bombesini
+// ve oluk gölgesini normalden alır. Lif gürültüsü anizotropik (textureGrad, ayak izinden) ve ayak izi lif
+// detayından büyükse söner.
 // t0 / t2 / t3: iplik tablosu satırları (pack.ts threadTable)
-vec3 reliefTerms(int ax, vec4 t0, vec4 t2, vec4 t3, float s, float u, float cross) {
+vec3 reliefTerms(int ax, vec4 t0, vec4 t2, vec4 t3, float s, float u, float cross, float a, vec2 fp, out vec2 dPly) {
   float d = t0.w;
   float T = abs(t3.x);
   float sgn = t3.x < 0.0 ? -1.0 : 1.0;
@@ -110,21 +117,28 @@ vec3 reliefTerms(int ax, vec4 t0, vec4 t2, vec4 t3, float s, float u, float cros
   float tanA = 3.14159265 * d * T;
   float spacing = (T > 1e-5 && !tape) ? snapP(uPlyK * 3.14159265 * d / (max(1.0, t3.y) * tanA), Ls) : 1e6;
   float phase = PI * s / spacing - sgn * asin(clamp(u, -1.0, 1.0));
-  float ply = pow(abs(sin(phase)), 0.6);
-  ply = mix(0.76, ply, bandLimit(spacing * uPxPerMm)); // uzakta ortalamaya söner (|sin|^0.6 ortalaması ≈ 0.76)
-  // İnce lif şeritleri: ters (S) yön, periyot 0.1·d, eğim 0.6 — VARSAYIM. Bantta filamentler eksene paralel.
-  float per = snapP(0.1 * d, Ls);
-  float fibl = tape
-    ? sin(2.0 * PI * cross / (0.06 * d)) * bandLimit(0.06 * d * uPxPerMm)
-    : sin(2.0 * PI * (s - sgn * 0.6 * cross) / per) * bandLimit(0.86 * per * uPxPerMm);
+  float sp = sin(phase);
+  float bl = bandLimit(spacing * uPxPerMm);
+  float ply = mix(0.76, pow(abs(sp), 0.6), bl);  // uzakta ortalamaya söner (|sin|^0.6 ortalaması ≈ 0.76)
+  // d ply / d φ (oluk tepesinde tekil: |sin| >= 0.12 ile sınırlı), φ'nin boyunca / enine türevi
+  float dpd = 0.6 * pow(max(abs(sp), 0.12), -0.4) * cos(phase) * (sp < 0.0 ? -1.0 : 1.0) * bl;
+  float cu = 1.0 / (a * max(sqrt(max(1.0 - u * u, 0.0)), 0.2));
+  dPly = dpd * vec2(PI / spacing, -sgn * cu);
+  float fibl = 0.0;
+  if (tape) {
+    ply = 0.76;
+    dPly = vec2(0.0);
+    fibl = sin(2.0 * PI * cross / (0.06 * d)) * bandLimit(0.06 * d * uPxPerMm);
+  }
   // Lif gürültüsü: iplik çerçevesinde (enine, boyunca) çapa normalize örnekleme; iplik başına doku ötelemesi
   float tpm = uFiberTexelsPerD / d;                         // texel / mm
   float tAlong = max(1.0, floor(Ls * tpm / uFiberSize + 0.5)) / Ls;   // doku tekrarı / mm
   vec2 tc = vec2(cross * tpm / uFiberSize, s * tAlong) + 0.5 * t2.yz;
-  float lod = max(0.0, log2(tpm / uPxPerMm));
-  // Mip'te enine ince yapı ortalanır, boyunca uzamış lif kalır; boyunca korelasyon (≈2.4 texel) pikselin
-  // altına inince (lod > 1.3) doku izotrop lekeye döner → genlik söner (mermer görünümü olmasın)
-  float fib = textureLod(uFiber, tc, lod).r * clamp(2.0 - lod * 0.55, 0.0, 1.0);
+  // Ekran türevleri analitik (kesit / eksen eşlemesi sabit): anizotropik süzgeç boyunca uzamış lifi korur
+  vec2 ddx = ax == 0 ? vec2(fp.x * tpm / uFiberSize, 0.0) : vec2(0.0, fp.x * tAlong);
+  vec2 ddy = ax == 0 ? vec2(0.0, fp.y * tAlong) : vec2(fp.y * tpm / uFiberSize, 0.0);
+  float acrossTex = (ax == 0 ? fp.x : fp.y) * tpm;           // piksel başına enine texel
+  float fib = textureGrad(uFiber, tc, ddx, ddy).r * (1.0 - smoothstep(1.0, 4.0, acrossTex));
   return vec3(ply, fibl, fib);
 }
 
@@ -233,8 +247,8 @@ void classicMain(float X, float Y) {
 }
 
 // v2 (fix-v3) aday: taban yükseklik (rölyefsiz) ve kenar kapsaması
-struct Cand { float h; float axis; int idx; float u; float prof; float cov; vec2 g; float cross; };
-Cand noCand() { return Cand(-1e3, 0.0, 0, 0.0, 0.0, 0.0, vec2(0.0), 0.0); }
+struct Cand { float h; float axis; int idx; float u; float prof; float cov; vec2 g; float cross; float a; };
+Cand noCand() { return Cand(-1e3, 0.0, 0, 0.0, 0.0, 0.0, vec2(0.0), 0.0, 1.0); }
 void pushCand(inout Cand t1, inout Cand t2, Cand c) {
   if (c.h > t1.h) { t2 = t1; t1 = c; } else if (c.h > t2.h) { t2 = c; }
 }
@@ -280,7 +294,7 @@ void v2Main(float X, float Y, vec2 fp) {
     float u = clamp(dx / a, -1.0, 1.0);
     float prof = b * sqrt(max(0.0, 1.0 - u * u));
     float cov = clamp(0.5 + (a - abs(dx)) / fp.x, 0.0, 1.0);
-    pushCand(t1, t2, Cand(mix(z0, z1, f) + prof, 1.0, i, u, prof, cov, vec2(slope(u, a, b, 1.0), (z1 - z0) * dsW), dx));
+    pushCand(t1, t2, Cand(mix(z0, z1, f) + prof, 1.0, i, u, prof, cov, vec2(slope(u, a, b, 1.0), (z1 - z0) * dsW), dx, a));
   }
 
   // Atkı adayları (uCross.y); eşitlikte çözgü üstte (sıkı büyüktür)
@@ -298,7 +312,7 @@ void v2Main(float X, float Y, vec2 fp) {
     float u = clamp(dy / a, -1.0, 1.0);
     float prof = b * sqrt(max(0.0, 1.0 - u * u));
     float cov = clamp(0.5 + (a - abs(dy)) / fp.y, 0.0, 1.0);
-    pushCand(t1, t2, Cand(mix(z0, z1, f2) + prof, 2.0, j, u, prof, cov, vec2((z1 - z0) * dsF, slope(u, a, b, 1.0)), dy));
+    pushCand(t1, t2, Cand(mix(z0, z1, f2) + prof, 2.0, j, u, prof, cov, vec2((z1 - z0) * dsF, slope(u, a, b, 1.0)), dy, a));
   }
 
   bool has1 = t1.axis > 0.5;
@@ -306,6 +320,7 @@ void v2Main(float X, float Y, vec2 fp) {
   // Rölyef yalnız üst katman için (kat oluğu, ince lif, lif gürültüsü)
   vec3 rel = vec3(0.76, 0.0, 0.0);
   float hRel = 0.0;
+  vec2 gRel = vec2(0.0);
   float h1 = uBgHeight;
   if (has1) {
     bool w = t1.axis < 1.5;
@@ -314,16 +329,15 @@ void v2Main(float X, float Y, vec2 fp) {
     if (relief > 0.0) {
       vec4 r0 = thr(ax, t1.idx, 0); vec4 r2 = thr(ax, t1.idx, 2); vec4 r3 = thr(ax, t1.idx, 3);
       // Atkıda enine eksen −y: Z oluklar ekranda "\" (relief.ts plyPhase)
-      rel = w ? reliefTerms(0, r0, r2, r3, Y, t1.u, t1.cross) : reliefTerms(1, r0, r2, r3, X, -t1.u, -t1.cross);
-      hRel = t1.prof * relief * (0.82 + 0.18 * rel.x + 0.02 * rel.y + 0.03 * rel.z - 1.0);
+      vec2 dP;
+      rel = w ? reliefTerms(0, r0, r2, r3, Y, t1.u, t1.cross, t1.a, fp, dP) : reliefTerms(1, r0, r2, r3, X, -t1.u, -t1.cross, t1.a, fp, dP);
+      float amp = t1.prof * relief;
+      hRel = amp * (PLY_H * (rel.x - 0.76) + 0.03 * rel.z);
+      // Kat bombesi eğimi (ekran x, y): çözgüde (enine, boyunca), atkıda (boyunca, −enine)
+      gRel = amp * PLY_H * (w ? vec2(dP.y, dP.x) : vec2(dP.x, -dP.y));
     }
     h1 = t1.h + hRel;
   }
-  // Rölyef eğimi: ekran türevleri, yalnız 2×2 dörtlünün tamamı aynı iplikteyse (dikiş çizgisi olmasın)
-  float key = has1 ? t1.axis * 65536.0 + float(t1.idx) : -1.0;
-  bool sameQuad = abs(dFdx(key)) < 0.5 && abs(dFdy(key)) < 0.5;
-  vec2 gRel = sameQuad ? vec2(dFdx(hRel), dFdy(hRel)) / fp : vec2(0.0);
-
   if (!has1) {
     gb0 = vec4(uBgHeight, 0.0, 0.0, 0.0);
     gb1 = vec4(0.0, 0.0, 0.0, 0.0);
@@ -339,7 +353,9 @@ void v2Main(float X, float Y, vec2 fp) {
     float gd = length(t1.g - t2.g) * length(fp) * 0.7071 + 1e-5;
     cov *= clamp(0.5 + dh / gd, 0.0, 1.0);
   }
-  vec2 grad = clamp(t1.g + gRel, -4.0, 4.0);
+  // gb1.xy = yalnız boyunca (krepaj) eğimi + kat detayı; enine eğim ışık geçişinde yuvarlak kesitten analitik gelir
+  vec2 along = t1.axis < 1.5 ? vec2(0.0, t1.g.y) : vec2(t1.g.x, 0.0);
+  vec2 grad = clamp(along + gRel, -4.0, 4.0);
   vec3 n = normalize(vec3(-grad, 1.0));
   gb0 = vec4(h1, mod(t1.axis < 1.5 ? Y : X, 16.0), t1.u, float(t1.idx));
   gb1 = vec4(n.xy, t1.axis, cov);

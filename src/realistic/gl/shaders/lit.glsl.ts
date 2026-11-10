@@ -69,6 +69,7 @@ uniform int uShadowSteps;      // 0 = kapalı
 uniform vec3 uLightDir;
 uniform float uRRef;           // gb2.w birimi (mm)
 uniform int uWrap;             // 1: döşeme pişirme — komşular kenarda sarmalanır
+uniform float uContact;        // kontakt gölge şiddeti (0 = kapalı, 1 = varsayılan)
 
 out vec4 outOcc;
 ${COMMON_GLSL}
@@ -97,6 +98,27 @@ void main() {
   // Ölçek azaltıldığında toplam şiddet korunur (yaklaşık): 1 ölçekte ×2.4, 2 ölçekte ×1.26
   acc *= uAoScales >= 3 ? 1.0 : (uAoScales == 2 ? 1.26 : 2.4);
   float ao = clamp(1.0 - 0.6 * uAoStrength * acc, 0.05, 1.0);
+
+  // Kontakt gölge (fix-v4): üstteki iplik, yanındaki alçak yüzeye (altından geçen iplik) 0.4·d_üst genişlikte yumuşak
+  // gölge düşürür: 8 yönde iki yarıçapta (R, R/2) komşu yükseklik farkı; kesitin iki yanında da çalışır.
+  if (uContact > 0.0) {
+    float rr = max(uRRef, 1e-4);
+    float R = 0.8 * rr * uPxPerMm;
+    float h0m = hMm(p);
+    float mx = 0.0;
+    float sum = 0.0;
+    for (int k = 0; k < 8; k++) {
+      float ang = 0.7853982 * float(k);
+      vec2 o = vec2(cos(ang), sin(ang));
+      float c1 = clamp((hMm(p + ivec2(round(o * R))) - h0m - 0.15 * rr) / (0.8 * rr), 0.0, 1.0);
+      float c2 = clamp((hMm(p + ivec2(round(o * R * 0.5))) - h0m - 0.15 * rr) / (0.8 * rr), 0.0, 1.0);
+      float c = max(c1, c2);
+      mx = max(mx, c);
+      sum += c;
+    }
+    float contact = 0.6 * mx + 0.4 * sum * 0.125;
+    ao = max(ao * (1.0 - 0.55 * clamp(uContact, 0.0, 1.5) * contact), 0.05);
+  }
 
   // Yönlü gölge: ışığa doğru ray-march
   float sh = 1.0;
@@ -130,6 +152,9 @@ uniform sampler2D uGb1;
 uniform sampler2D uGb2;
 uniform sampler2D uGb3;         // alt katman (fix-v3)
 uniform int uBg;                // zemin: 0 koyu gri, 1 siyah, 2 arkadan ışık
+uniform int uAnalyticN;         // 1: enine normal yuvarlak kesitten analitik (v2); 0: gb1'den (classic)
+uniform float uWhite;           // ton eşlemede beyaz noktası (pozlama sonrası doğrusal)
+uniform sampler2D uThreads;     // iplik tablosu (pack.ts threadTable): basıklık k
 uniform sampler2D uThreadColor; // RGBA32F, döşeme periyodu × 2 (çözgü, atkı): doğrusal albedo
 uniform sampler2D uOccTile;     // pişirilmiş (ao, gölge) döşemesi, LINEAR + REPEAT
 uniform sampler2D uHairTile;    // pişirilmiş tüy katmanı (önçarpımlı RGBA), mip'li + REPEAT
@@ -169,6 +194,14 @@ vec3 toSrgb(vec3 c) {
 float threadRand(int axis, int idx, int ch) {
   int per = axis == 0 ? uPeriod.x : uPeriod.y;
   return hash01(ivec2(pmod(idx, per), axis * 16 + ch), uSeed) * 2.0 - 1.0;
+}
+// Ton eşleme (fix-v4): 0.75 altı aynen, üstü yumuşak omuz (genişletilmiş Reinhard, beyaz noktası uWhite) → beyaz yanmaz
+vec3 tone(vec3 x) {
+  const float k = 0.75;
+  float wu = (uWhite - k) / (1.0 - k);
+  vec3 u = max(x - k, 0.0) / (1.0 - k);
+  vec3 hi = k + (1.0 - k) * u * (1.0 + u / (wu * wu)) / (1.0 + u);
+  return min(mix(x, hi, step(vec3(k), x)), vec3(1.0));
 }
 // OKLab (Björn Ottosson), doğrusal sRGB ↔ OKLab
 vec3 toOklab(vec3 c) {
@@ -258,35 +291,51 @@ void main() {
     vec3 base = threadBase(isWarp, idx);
     vec4 yt = threadYarn(isWarp, idx);
     int lusterIdx = clamp(int(round(yt.z)), 0, 2);
-    vec3 N = vec3(g1.xy, sqrt(max(0.0, 1.0 - dot(g1.xy, g1.xy))));
+    vec3 N0 = vec3(g1.xy, sqrt(max(0.0, 1.0 - dot(g1.xy, g1.xy))));
+    // gb1.xy: boyunca eğim + kat bombesi / lif detayı. v2'de enine eğim yuvarlak kesitten analitik (iplik
+    // ortası aydınlık, kenara doğru kararır): N ~ (v/k, sqrt(1-v^2)) enine, + detay tilt · sqrt(1-v^2)
+    vec2 grad = -N0.xy / max(N0.z, 0.2);
+    vec3 N = N0;
+    float vv = clamp(g0.z, -1.0, 1.0);
+    if (uAnalyticN == 1) {
+      float kk = texelFetch(uThreads, ivec2(pmod(idx, isWarp ? uPeriod.x : uPeriod.y), isWarp ? 0 : 4), 0).z;
+      float nup = sqrt(max(1.0 - vv * vv, 0.0));
+      vec2 across = (isWarp ? vec2(vv, 0.0) : vec2(0.0, vv)) / kk;
+      N = normalize(vec3(across - nup * grad, max(nup, 0.02)));
+    }
     vec3 V = vec3(0.0, 0.0, 1.0);
     vec3 H = normalize(L + V);
     float diff = clamp(dot(N, L) * 0.75 + 0.25, 0.0, 1.0);
-    // Kajiya-Kay: teğet iplik ekseni + eğim (normalden: eğim = −N.xy / N.z)
-    vec2 grad = -N.xy / max(N.z, 0.2);
+    // Kajiya-Kay: teğet iplik ekseni + boyunca eğim
     vec3 Tn = normalize(isWarp ? vec3(0.0, 1.0, grad.y) : vec3(1.0, 0.0, grad.x));
     float TH = dot(Tn, H);
     float sinTH = sqrt(clamp(1.0 - TH * TH, 0.0, 1.0));
     float w = max(uSpecWidthMul, 0.05);
-    float spec = (0.05 * pow(sinTH, 12.0 / w) + 0.10 * pow(sinTH, 90.0 / w)) * uLusterMul[lusterIdx] * uSpecMul;
-    // Melanj (C): iplik boyunca uzamış lif gürültüsü + ince lif; ≈ ±%6 (fix-v3; v2'de ±%10 / ±%5 lekeliydi)
-    base *= max(0.0, 1.0 + uMelange * (0.045 * g2.z + 0.015 * g2.y));
-    float cav = clamp(0.55 + 0.45 * g2.x, 0.0, 1.0);
+    // Speküler: parlaklık sınıfına göre yumuşak tavan, açık albedoda azalır → beyaz iplik yanmaz
+    float specRaw = (0.05 * pow(sinTH, 12.0 / w) + 0.10 * pow(sinTH, 90.0 / w)) * uLusterMul[lusterIdx];
+    float cap = lusterIdx == 0 ? 0.10 : (lusterIdx == 1 ? 0.18 : 0.32);
+    float lumB = clamp(dot(base, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    float spec = cap * (1.0 - exp(-specRaw / cap)) * uSpecMul * mix(1.0, 0.35, lumB);
+    // Melanj: iplik boyunca uzamış lif gürültüsü ~ ±%4.5 (+ kat ±%3: yalnız ipucu, görünürlük ışıktan gelir)
+    base *= max(0.0, 1.0 + uMelange * 0.045 * g2.z + 0.03 * (g2.x - 0.76));
+    // Kavite: kat olukları ve kesit kenarı kararır
+    float cav = mix(0.6, 1.0, smoothstep(0.0, 0.7, g2.x)) * (1.0 - 0.3 * pow(abs(vv), 3.0));
     vec3 top;
     if (uBg == 2) {
       top = backlitThread(base, g0.z, yt.x, diff, aoT) * cav;
     } else {
       float lightv = (0.22 * aoT + 0.95 * diff * sh * aoT) * cav;
-      top = base * lightv + spec * sh * aoT * cav;
+      // kenarda hafif rim (kesit kenarında ışığı yakalayan lifler)
+      top = base * lightv + spec * sh * aoT * cav + base * 0.10 * pow(abs(vv), 6.0) * diffFlat * sh;
     }
     col = mix(under, top, cov);
   }
-  vec3 outS = toSrgb(col * uExposure);
+  vec3 outS = toSrgb(tone(col * uExposure));
   // Tüylülük (D): kök renginin ışıklı hali ×1.05 + 4/255 (fix-v3: v2'de ×1.15 + 12, çizik gibiydi); arkadan
   // ışıkta lif koyu siluet
   if (hair.a > 1e-4) {
     vec3 hl = uBg == 2 ? toLinear(hair.rgb / hair.a) * 0.06 : toLinear(hair.rgb / hair.a) * lightFlat;
-    outS = mix(outS, clamp(toSrgb(hl * uExposure) * 1.05 + 4.0 / 255.0, 0.0, 1.0), hair.a);
+    outS = mix(outS, clamp(toSrgb(tone(hl * uExposure)) * 1.05 + 4.0 / 255.0, 0.0, 1.0), hair.a);
   }
   outColor = vec4(outS, 1.0);
 }

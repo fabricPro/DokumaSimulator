@@ -164,6 +164,14 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.generateMipmap(gl.TEXTURE_2D);
+  // Anizotropik süzgeç (varsa): boyunca uzamış lif gürültüsü uzak / eğik bakışta bulanmaz, moiré oluşmaz
+  const aniso = gl.getExtension('EXT_texture_filter_anisotropic') as
+    | { TEXTURE_MAX_ANISOTROPY_EXT: number; MAX_TEXTURE_MAX_ANISOTROPY_EXT: number }
+    | null;
+  if (aniso) {
+    const maxA = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number;
+    gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, maxA));
+  }
 
   // Tüy kapalıyken bağlanacak boş doku
   const emptyTex = createTexture(gl, gl.RGBA8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
@@ -405,7 +413,11 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     bindTex(8, g.gb2, ul('uGb2'));
     bindTex(9, hairTex ?? emptyTex, ul('uHairTile'));
     bindTex(10, g.gb3, ul('uGb3'));
-    bindTex(11, ensureCross(t, input, v).colors, ul('uThreadColor'));
+    const crl = ensureCross(t, input, v);
+    bindTex(11, crl.colors, ul('uThreadColor'));
+    bindTex(12, crl.threads, ul('uThreads'));
+    gl.uniform1i(ul('uAnalyticN'), (v.tuning?.model ?? 'v2') === 'v2' ? 1 : 0);
+    gl.uniform1f(ul('uWhite'), Math.max(1.05, v.tuning?.whitePoint ?? 2));
     const bg = v.tuning?.background ?? 'darkgray';
     gl.uniform1i(ul('uBg'), bg === 'black' ? 1 : bg === 'backlight' ? 2 : 0);
     gl.uniform1i(ul('uHairOn'), hairTex ? 1 : 0);
@@ -508,7 +520,10 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       tn.relief ?? 1,
       tn.model ?? 'v2',
       tn.flattening ?? 1,
-      profile === 'mobile' ? [tn.hairiness ?? 1, tn.specularStrength ?? 1, tn.specularWidth ?? 1, tn.melange ?? 1, tn.background ?? 'darkgray'] : 0,
+      tn.contactShadow ?? 1,
+      profile === 'mobile'
+        ? [tn.hairiness ?? 1, tn.specularStrength ?? 1, tn.specularWidth ?? 1, tn.melange ?? 1, tn.background ?? 'darkgray', tn.whitePoint ?? 2]
+        : 0,
     ]);
     if (bake && bake.key === key) return bake;
     freeBake();
@@ -539,6 +554,7 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     gl.uniform3fv(uo('uLightDir'), lightDirection(v.light.azimuthDeg, v.light.elevationDeg));
     gl.uniform1f(uo('uRRef'), t.rMax);
     gl.uniform1i(uo('uWrap'), 1);
+    gl.uniform1f(uo('uContact'), tn.contactShadow ?? 1);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.deleteFramebuffer(occ.fbo);
     const b: Bake = { key, tile, occ: occ.tex, color: null, size: [w, h], ms: 0 };

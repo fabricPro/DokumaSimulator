@@ -690,17 +690,19 @@ async function fixV2(phase: number, say: (t: string) => void) {
 const acikSpec = acikSpecJson as unknown as FabricSpec;
 const acikInput = fabricInputFromSpec(acikSpec, { luster: 'yarimat', hairiness: 0.25, twistPerM: 600 });
 
-async function fixV3(phase: number, say: (t: string) => void) {
+async function fixV3(phase: number, say: (t: string) => void, tag = 'fix-v3') {
+  // fix-v4 (yüzey / ışık turu): yalnız acik-coklu-atki yakın zoom + banded-warp-detail + perf
+  const v4 = tag === 'fix-v4';
   const out: Record<string, unknown> = { light: LIGHT };
   // 1) Açık doku, üç zemin modu (yakın plan 40 px/mm ≈ 25 px / çözgü aralığı)
   const openness: Record<string, unknown> = {};
-  for (const bg of ['darkgray', 'black', 'backlight'] as const) {
+  for (const bg of v4 ? (['darkgray'] as const) : (['darkgray', 'black', 'backlight'] as const)) {
     const c = document.createElement('canvas');
     c.width = SIZE;
     c.height = SIZE;
     const r = createRealisticRenderer(c, { preserveDrawingBuffer: true });
-    r.render(acikInput, { pxPerCm: 400, offsetCm: [0, 0], light: LIGHT, quality: 'high', tuning: { background: bg } });
-    await save(phase, `acik-coklu-atki-${bg}.png`, c.toDataURL('image/png'), 'png');
+    r.render(acikInput, { pxPerCm: v4 ? 1000 : 400, offsetCm: v4 ? [0.3, 0.3] : [0, 0], light: LIGHT, quality: 'high', tuning: { background: bg } });
+    await save(phase, v4 ? 'acik-coklu-atki-yakin.png' : `acik-coklu-atki-${bg}.png`, c.toDataURL('image/png'), 'png');
     if (bg === 'darkgray') {
       // Gerçekçi açıklık: 1 − ortalama üst kapsama (kenar yumuşatma dahil; alt katmanın kenar payı yok sayılır)
       const gb = r.readGBuffer();
@@ -726,7 +728,7 @@ async function fixV3(phase: number, say: (t: string) => void) {
     r.dispose();
   }
   // 3) Hedefle yakın plan karşılaştırması (fix-v2 compare_yakin ile aynı kurulum)
-  {
+  if (!v4) {
     const W = 1792;
     const H = 820;
     const target = await loadImage('/reference/realistic-v2/hedef_yakin_plan_v2.jpg');
@@ -808,7 +810,7 @@ async function fixV3(phase: number, say: (t: string) => void) {
     out.perf = { gpu, layeredOverhead: overhead };
     say('perf: ' + JSON.stringify(out.perf));
   }
-  await save(phase, 'fix-v3.json', JSON.stringify(out, null, 2), 'json');
+  await save(phase, `${tag}.json`, JSON.stringify(out, null, 2), 'json');
   return out;
 }
 
@@ -831,7 +833,7 @@ async function run() {
   }
   // fix-v3 (ve sonrası): yalnız bu turun hedefli snapshot'ları
   if (fixTag && fixTag !== 'fix-v2') {
-    report.fixV3 = await fixV3(phase, say);
+    report.fixV3 = await fixV3(phase, say, fixTag);
     await save(phase, 'report.json', JSON.stringify(report, null, 2), 'json');
     window.__snapshotsReport = report;
     window.__snapshotsDone = true;

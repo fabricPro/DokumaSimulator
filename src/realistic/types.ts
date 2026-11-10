@@ -111,6 +111,10 @@ export interface Tuning {
    * ışık: boşluklar aydınlık, iplikler koyu siluet + hafif kenar ışığı; perde ışık geçirgenliği).
    */
   background?: 'darkgray' | 'black' | 'backlight';
+  /** Kontakt gölge şiddeti (üst iplik → alttaki iplik; 0.4·d genişlik). 0 = kapalı, varsayılan 1. */
+  contactShadow?: number;
+  /** Ton eşleme beyaz noktası (pozlama sonrası doğrusal; küçük = daha erken sıkıştırır). Varsayılan 2. */
+  whitePoint?: number;
 }
 
 export interface ViewParams {
