@@ -3,6 +3,15 @@ import {
   CARD_WIDTH_MM,
   cssPxPerMm,
   effectiveFwhmMm,
+  FILTER_MAX_SIGMA_PX,
+  MAGNIFIER_MIN_YARN_PX,
+  REAL_BLEND_END_PX,
+  REAL_BLEND_START_PX,
+  cappedFwhmMm,
+  farFilterDistance,
+  meanDiameter,
+  realBlend,
+  realWeight,
   filterFwhmMm,
   filterSigmaMm,
   materialTuning,
@@ -149,5 +158,58 @@ describe('pişirme bellek bütçesi (siyah panel hatası)', () => {
     expect(lruEvictions([e('a', 200)], 'a', 96 * 1024 * 1024)).toEqual([]);
     // keep eski olsa bile tahliye edilmez
     expect(lruEvictions([e('a', 60), e('b', 60)], 'a', 70 * 1024 * 1024)).toEqual(['b']);
+  });
+});
+
+describe('ölçeğe bağlı otomatik geçiş (uzak görünüm ↔ gerçekçi lup)', () => {
+  it('eşikler tek yerde: 6 px ve 12 px; büyüteç en az 14 px', () => {
+    expect(REAL_BLEND_START_PX).toBe(6);
+    expect(REAL_BLEND_END_PX).toBe(12);
+    expect(MAGNIFIER_MIN_YARN_PX).toBeGreaterThan(REAL_BLEND_END_PX);
+  });
+  it('iplik çapı (px): < 6 uzak görünüm (0), > 12 tam lup (1), arada tek yönlü yumuşak geçiş', () => {
+    expect(realBlend(0.5)).toBe(0);
+    expect(realBlend(3)).toBe(0);
+    expect(realBlend(6)).toBe(0);
+    expect(realBlend(12)).toBe(1);
+    expect(realBlend(40)).toBe(1);
+    let prev = 0;
+    for (let px = 6; px <= 12; px += 0.25) {
+      const w = realBlend(px);
+      expect(w).toBeGreaterThanOrEqual(prev - 1e-12);
+      prev = w;
+    }
+    // log ortada (≈ 8.5 px) yarı yarıya
+    expect(realBlend(Math.sqrt(6 * 12))).toBeCloseTo(0.5, 6);
+    // sıçrama yok: komşu 0.25 px'lik adımlar arasında fark küçük
+    for (let px = 6; px < 12; px += 0.25) expect(realBlend(px + 0.25) - realBlend(px)).toBeLessThan(0.2);
+  });
+  it('ortalama çap desenden (iplik başına değil): çözgü ve atkı ortalamalarının ortalaması', () => {
+    expect(meanDiameter([0.2, 0.2, 0.4], [0.3])).toBeCloseTo((0.8 / 3 + 0.3) / 2, 9);
+    expect(meanDiameter([], [])).toBe(0);
+  });
+  it('her panel kendi px/mm\'sine göre bağımsız karar verir (Bendix ≈ 0.25 mm: 9 px/mm → 2.3 px uzak; 100 px/mm → 25 px lup)', () => {
+    const d = 0.25;
+    expect(realWeight(d, 2)).toBe(0);
+    expect(realWeight(d, 9)).toBe(0); // 2.25 px
+    expect(realWeight(d, 24)).toBe(0); // 6 px sınır
+    expect(realWeight(d, 34)).toBeGreaterThan(0.3); // 8.5 px ≈ yarı
+    expect(realWeight(d, 34)).toBeLessThan(0.7);
+    expect(realWeight(d, 100)).toBe(1);
+    // iki panel farklı px/mm ile farklı ağırlık alabilir
+    expect(realWeight(d, 30)).toBeGreaterThan(realWeight(d, 26));
+  });
+  it('uzak görünümün filtresi: Göz / Uzak seçili olan, Lup modunda Göz', () => {
+    expect(farFilterDistance('eye')).toBe('eye');
+    expect(farFilterDistance('far')).toBe('far');
+    expect(farFilterDistance('loupe')).toBe('eye');
+  });
+  it('filtre ekranda σ_px ≤ 1.5: yakınlaştıkça bulanıklık artmaz (zoom kovasında)', () => {
+    const farFwhm = filterFwhmMm('far'); // 0.55 mm
+    expect(cappedFwhmMm(farFwhm, 2)).toBeCloseTo(farFwhm, 9); // uzakta sınırsız
+    const near = cappedFwhmMm(farFwhm, 64);
+    expect(near).toBeLessThan(farFwhm);
+    // σ_px = FWHM/2.355 × px/mm ≤ 1.5 (kova 2'nin kuvveti: 64 px/mm tam kova)
+    expect((near / 2.3548) * 64).toBeLessThanOrEqual(FILTER_MAX_SIGMA_PX + 1e-3);
   });
 });

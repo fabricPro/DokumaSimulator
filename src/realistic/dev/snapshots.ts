@@ -18,7 +18,7 @@ import { fabricInputFromSpec } from '../adapters/fromSpec';
 import { computeMetrics } from '../../render-engine/physical/metrics';
 import { DEMO_DESENLER } from '../../app/demoDesenler';
 import { atkiJsonToFabricSpec, orguAnahtari } from '../../adapters/atkiJson';
-import { cssPxPerMm, filterFwhmMm, filterSigmaMm, resolvableMm, sharpWeight, VIEW_DISTANCE_MM } from '../viewDistance';
+import { cssPxPerMm, filterFwhmMm, filterSigmaMm, meanYarnDiameterMm, realWeight, resolvableMm, sharpWeight, VIEW_DISTANCE_MM } from '../viewDistance';
 import { physicalExample } from '../../presets/physicalExample';
 import { diameterMm as yarnDiameterMm, toTex as yarnToTex } from '../yarn';
 import { pitchMm } from '../scale';
@@ -1558,8 +1558,61 @@ async function viewV3Snapshots(say: (t: string) => void) {
   return report;
 }
 
+/**
+ * Ölçeğe bağlı geçiş (samples/realistic/scale-switch/): Bendix varyant 3, Lup modu, 5 ölçekte (2, 6, 9, 20, 100 px/mm)
+ * Tezgah | Mamul yan yana. Orta ölçekte (6–20 px/mm) kumlu ara görüntü olmamalı; report.json: ortalama iplik çapı (px),
+ * gerçekçi lup ağırlığı, panel başına sütun şerit gücü.
+ */
+async function scaleSwitchSnapshots(say: (t: string) => void) {
+  const d = DEMO_DESENLER.find((x) => x.key === 'gardisette-bendix-stripe')!;
+  const k3 = d.json.varyasyonlar.findIndex((v) => v.ad === 'Varyant 3');
+  const spec = { ...atkiJsonToFabricSpec(d.json, { ...d, varyantIndex: k3 }), warpShrinkPct: 6, weftShrinkPct: 10 };
+  const inputs = {
+    Tezgah: fabricInputFromSpec(spec, undefined, { densities: 'loom' }),
+    Mamul: fabricInputFromSpec(spec, undefined, { densities: 'finished' }),
+  };
+  const W = 600;
+  const H = 520;
+  const rows: Array<Record<string, unknown>> = [];
+  for (const ppm of [2, 6, 9, 20, 100]) {
+    const c = document.createElement('canvas');
+    c.width = 2 * W + 8;
+    c.height = H;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, c.width, H);
+    (['Tezgah', 'Mamul'] as const).forEach((name, k) => {
+      const input = inputs[name];
+      const cv = document.createElement('canvas');
+      cv.width = W;
+      cv.height = H;
+      const r = createRealisticRenderer(cv, { preserveDrawingBuffer: true });
+      // her panel kendi bölgesi: 6 / 9 / 20 / 100 px/mm'de pencere küçük; aynı kumaş noktası (y ≈ 12 mm)
+      r.render(input, { pxPerCm: ppm * 10, offsetCm: [0.1, (12 - H / 2 / ppm) / 10], light: LIGHT, quality: 'high', distance: 'loupe', tuning: { background: 'darkgray', farBackground: 'light' } });
+      g.drawImage(cv, k * (W + 8), 0);
+      const dMean = meanYarnDiameterMm(input);
+      r.dispose();
+      rows.push({ panel: name, pxPerMm: ppm, meanYarnPx: +(dMean * ppm).toFixed(2), realWeight: +realWeight(dMean, ppm).toFixed(3), warpPerCm: input.density.warpPerCm });
+      labelOn(g, k * (W + 8) + 10, 10, `${name} · Lup · ${ppm} px/mm · iplik ${(dMean * ppm).toFixed(1)} px · gerçekçi %${Math.round(100 * realWeight(dMean, ppm))}`);
+    });
+    await save(0, `scale-${ppm}.png`, c.toDataURL('image/png'), 'png');
+  }
+  const report = { note: 'Lup modu; iplik px = ortalama çözgü / atkı çapı × px/mm; gerçekçi ağırlık: 6 px altı 0 (uzak görünüm: Göz filtresi + açık zemin), 12 px üstü 1 (tam lup).', rows };
+  await save(0, 'report.json', JSON.stringify(report, null, 2), 'json');
+  say('scale-switch: ' + JSON.stringify(rows));
+  return report;
+}
+
 async function run() {
   const tagParam = new URLSearchParams(location.search).get('phase') ?? '1';
+  if (tagParam === 'scale-switch') {
+    SAVE_TAG = 'scale-switch';
+    const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');
+    window.__snapshotsReport = await scaleSwitchSnapshots(say);
+    window.__snapshotsDone = true;
+    say('Bitti.');
+    return;
+  }
   if (tagParam === 'view-v3') {
     SAVE_TAG = 'view-v3';
     const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');

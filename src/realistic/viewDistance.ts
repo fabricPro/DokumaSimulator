@@ -181,3 +181,59 @@ export function materialTuning<T extends object>(distance: ViewDistance, tuning?
  * değil; "bulut" olmasın). Kullanıcının irregularity çarpanı / ΔE değeri bu ölçekle çarpılır.
  */
 export const VIEW_TONE_DE_SCALE = 2 / 3;
+
+/**
+ * ÖLÇEĞE BAĞLI OTOMATİK GEÇİŞ (tek yerde, ileride ayarlanabilir). Ekranda ORTALAMA iplik çapı (px) ölçeği belirler:
+ *  - çap < REAL_BLEND_START_PX (6 px): "uzak görünüm" — Göz / Uzak filtreli, temiz kartela (Lup modunda da Göz filtresi
+ *    ve Göz zemini): bu ölçekte gölge, büküm, AO anlamsızlaşır ve kumlu / gürültülü görünür;
+ *  - 6 → REAL_BLEND_END_PX (12 px): uzak görünümden gerçekçi lupa yumuşak geçiş (log ölçekte smoothstep, 1 oktav ≈
+ *    1.5 zoom adımı — ani sıçrama yok);
+ *  - çap > 12 px: tam gerçekçi lup.
+ * Çap iplik başına değil desenin ortalama çözgü / atkı çapıdır; her panel kendi px/mm değeriyle bağımsız karar verir.
+ * VARSAYIM (gözle seçildi): 6 ve 12 px.
+ */
+export const REAL_BLEND_START_PX = 6;
+export const REAL_BLEND_END_PX = 12;
+/** Büyüteç dairesi: içi hep tam gerçekçi lup olsun diye ortalama iplik çapı en az bu kadar piksele büyütülür. */
+export const MAGNIFIER_MIN_YARN_PX = 14;
+
+/** Gerçekçi lup ağırlığı: 0 (uzak görünüm) … 1 (tam lup), ortalama iplik çapının piksel büyüklüğüne göre. */
+export function realBlend(yarnPx: number): number {
+  if (!(yarnPx > REAL_BLEND_START_PX)) return 0;
+  if (yarnPx >= REAL_BLEND_END_PX) return 1;
+  const t = Math.log(yarnPx / REAL_BLEND_START_PX) / Math.log(REAL_BLEND_END_PX / REAL_BLEND_START_PX);
+  return t * t * (3 - 2 * t);
+}
+
+/** Desenin ortalama iplik çapı (mm): çözgü ve atkı ortalamalarının ortalaması (diziler rapor boyunca). */
+export function meanDiameter(warpDiametersMm: number[], weftDiametersMm: number[]): number {
+  const m = (l: number[]) => (l.length ? l.reduce((a, b) => a + b, 0) / l.length : 0);
+  return (m(warpDiametersMm) + m(weftDiametersMm)) / 2;
+}
+export function meanYarnDiameterMm(input: FabricInput): number {
+  const d = (t: number) => {
+    const y = input.yarnTypes[t];
+    return diameterMm(toTex(y.count, y.unit), y.yarnDensity ?? DEFAULT_YARN_DENSITY);
+  };
+  return meanDiameter(input.warp.map((t) => d(t.yarnType)), input.weft.map((t) => d(t.yarnType)));
+}
+
+/** Bu panelin (px/mm) gerçekçi lup ağırlığı. */
+export function realWeight(meanDiameterMm: number, pxPerMm: number): number {
+  return realBlend(meanDiameterMm * pxPerMm);
+}
+
+/** Uzak görünümün filtresi: Göz / Uzak seçili olanı, Lup modunda Göz. */
+export function farFilterDistance(distance: ViewDistance): Exclude<ViewDistance, 'loupe'> {
+  return distance === 'loupe' ? 'eye' : distance;
+}
+
+/**
+ * Filtreli yolun büyüklük sınırı: filtre ekranda σ_px > 1.5 olmasın (yakınlaştıkça bulanıklık artmasın). Pişirmede
+ * zoom kovasına (2'nin kuvveti) göre FWHM üst sınırı (mm).
+ */
+export const FILTER_MAX_SIGMA_PX = 1.5;
+export function cappedFwhmMm(fwhmMm: number, pxPerMm: number): number {
+  const bucket = 2 ** Math.round(Math.log2(Math.max(pxPerMm, 1e-6)));
+  return Math.min(fwhmMm, (FILTER_MAX_SIGMA_PX * FWHM_PER_SIGMA) / bucket);
+}

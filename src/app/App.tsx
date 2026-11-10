@@ -87,7 +87,10 @@ export function App() {
   const [userBackground, setUserBackground] = useState<BackgroundPref | null>(null);
   // Bakış mesafesi (zoom'dan ayrı): Göz / Uzak fiziksel ölçek + ön filtre, Lup gerçekçi yakın görünüm
   const [distance, setDistance] = useState<DistancePref>('eye');
+  // Yakın (tam gerçekçi lup) zemini: Lup koyu gri, Göz / Uzak açık. Uzak görünüm zemini her modda Göz zemini (açık):
+  // Lup uzaklaşınca koyu zemin yerine Göz zemini. Elle seçilen zemin ikisinde de geçerli.
   const realBackground: BackgroundPref = userBackground ?? (distance === 'loupe' ? 'darkgray' : 'light');
+  const farBackground: BackgroundPref = userBackground ?? 'light';
   const [screenCalib, setScreenCalib] = useState(loadCalib);
   const physPpm = cssPxPerMm(screenCalib);
   const [realUnavailable, setRealUnavailable] = useState(false);
@@ -100,9 +103,9 @@ export function App() {
   const realistic = useMemo(
     () =>
       realOn && !realUnavailable
-        ? { quality: realQuality, background: realBackground, distance, densities: 'finished' as const, onUnavailable: onRealUnavailable }
+        ? { quality: realQuality, background: realBackground, farBackground, distance, densities: 'finished' as const, onUnavailable: onRealUnavailable }
         : undefined,
-    [realOn, realUnavailable, realQuality, realBackground, distance, onRealUnavailable],
+    [realOn, realUnavailable, realQuality, realBackground, farBackground, distance, onRealUnavailable],
   );
   const [calibOpened, setCalibOpened] = useState(false);
 

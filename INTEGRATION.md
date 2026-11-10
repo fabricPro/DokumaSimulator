@@ -215,6 +215,15 @@ const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // ekranda
   karakteri korunur (`materialTuning`: zemin modun varsayılanı açık, yayılma ×2.2 + yumuşak iplik kenarı ile iplik
   araları kapanır, rölyef 0.5, melanj 0.7, tüylülük 0.5); Lup tam detaylı, koyu zeminli inceleme modudur. Göz ≈ 32 →
   86 px/mm, Uzak ≈ 6.4 → 17 px/mm arasında geçiş olur.
+- **Ölçeğe bağlı otomatik geçiş** (`viewDistance.REAL_BLEND_START_PX` = 6, `REAL_BLEND_END_PX` = 12 — tek yerde, ayarlanabilir):
+  ekranda ORTALAMA iplik çapı (px; desenin çözgü / atkı ortalaması, iplik başına değil) belirler. < 6 px: uzak görünüm
+  (Göz / Uzak filtresi + açık zemin; Lup modunda da Göz filtresi ve Göz zemini); 6–12 px: uzak görünümden gerçekçi
+  lupa yumuşak geçiş (log smoothstep ≈ 1.5 zoom adımı, GL blend); > 12 px: tam gerçekçi lup. Bakış seçici: Göz / Uzak =
+  uzak görünümün filtresi, yakında da açık zemin + kapalı iplik araları; Lup = yakında tam detay + koyu zemin
+  (`tuning.background`), uzaklaşınca Göz'e düşer (`tuning.farBackground`, varsayılan açık). Her panel kendi px/mm'sine
+  göre bağımsız karar verir. Büyüteç dairesi: panel uzak görünümdeyken imleç altında ikinci bir katman
+  (`tuning.forceReal`; ortalama iplik çapı ≥ `MAGNIFIER_MIN_YARN_PX` = 14 px olacak kadar büyütülür) her zaman tam lup.
+  Blend bölgesinde uzak görünüm önbellekten, gerçekçi lup yarım çözünürlükte (gezinme) çizilir.
 - **Otomatik LOD:** her modda piksel ayak izi daha büyükse ayak izine eşit minimum filtre (`effectiveFwhmMm`; örnekleme
   +0.6 LOD sapmasıyla ≈ 1.5 piksel — iplik aralığı ~2 piksele düşünce moiré olmasın, panel yoğunluğundan bağımsız):
   ön süzülmüş döşemenin mip seviyesi donanımca seçilir. Lup'ta iplik 3 pikselin altına inince (`useFilteredPath`)

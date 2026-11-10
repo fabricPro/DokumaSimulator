@@ -43,8 +43,12 @@ export interface RealisticLayerProps {
   pxPerMm: number;
   loupe: boolean;
   quality: QualityPref;
-  /** Boşluk zemini; verilmezse koyu gri. */
+  /** Boşluk zemini (tam gerçekçi lup); verilmezse koyu gri. */
   background?: BackgroundPref;
+  /** Uzak görünümün zemini (ölçek küçükken; Lup modunda da). Verilmezse renderer: Göz / Uzak'ta `background`, Lup'ta açık. */
+  farBackground?: BackgroundPref;
+  /** Büyüteç dairesi: ölçeğe bakmadan tam gerçekçi lup (uzak görünümde imleç altı). */
+  forceReal?: boolean;
   /** Bakış mesafesi; verilmezse lup. Göz / Uzak'ta pxPerMm çağıranın fiziksel ölçeğidir. */
   distance?: DistancePref;
   onState: (s: { ok: boolean; text: string }) => void;
@@ -168,7 +172,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
           offsetCm: [p.originMm[0] / 10, p.originMm[1] / 10],
           light: LIGHT,
           quality: level.quality,
-          tuning: { background },
+          tuning: { background, ...(p.farBackground ? { farBackground: p.farBackground } : {}), ...(p.forceReal ? { forceReal: true } : {}) },
           distance,
           navigating: moving,
         });
@@ -212,7 +216,7 @@ export default function RealisticLayer(p: RealisticLayerProps) {
     };
     // level nesnesi her render'da yenidir; içeriği quality + scale
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile, background, distance, redraw]);
+  }, [ready, input, width, height, p.pxPerMm, p.originMm[0], p.originMm[1], level.quality, scaleNow, p.loupe, p.quality, profile, background, p.farBackground, p.forceReal, distance, redraw]);
 
   const hidden = width < 2 || height < 2;
   return (

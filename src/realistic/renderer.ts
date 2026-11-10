@@ -19,13 +19,15 @@ import {
   THREAD_VARIATION_PERIOD,
   filterFwhmMm,
   filteredBakeDensity,
+  cappedFwhmMm,
+  farFilterDistance,
   lruEvictions,
   VIEW_TONE_DE_SCALE,
   materialTuning,
+  meanYarnDiameterMm,
   minYarnDiameterMm,
-  sharpWeight,
+  realWeight,
   sigmaFromFwhm,
-  useFilteredPath,
 } from './viewDistance';
 import { threadRand } from './hash';
 import { EXPOSURE, LUSTER_KK_MUL, LUSTER_ORDER, QUALITY_SAMPLES } from './surface';
@@ -711,7 +713,8 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
     const colorBake = profile === 'mobile' || filtered;
     const tile = t.tile;
     const screenPpm = v.pxPerCm / 10;
-    const fwhm = filterFwhmMm(distance);
+    // Filtre ekranda σ_px > 1.5 olmasın: yakınlaştıkça filtreli yolun bulanıklığı artmaz (zoom kovasında)
+    const fwhm = cappedFwhmMm(filterFwhmMm(distance), screenPpm);
     const dMin = minYarnDiameterMm(input);
     const dbg = opts.debugFilter ?? {};
     const cands = bakes.filter((x) => x.filtered === filtered);
@@ -729,12 +732,12 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       tn.spread ?? 1,
       tn.softEdge ?? 0,
       tn.contactShadow ?? 1,
-      filtered ? ['F', distance, Dfilt] : 0,
+      filtered ? ['F', distance, Dfilt, +fwhm.toFixed(4)] : 0,
       colorBake
         ? [tn.hairiness ?? 1, tn.specularStrength ?? 1, tn.specularWidth ?? 1, tn.melange ?? 1, tn.background ?? 'darkgray', tn.whitePoint ?? 2]
         : 0,
     ]);
-    const keyBase = filtered ? key.replace(JSON.stringify(['F', distance, Dfilt]), JSON.stringify(['F', distance])) : key;
+    const keyBase = filtered ? key.replace(JSON.stringify(['F', distance, Dfilt, +fwhm.toFixed(4)]), JSON.stringify(['F', distance])) : key;
     // Görünür pencere (mm), kumaş koordinatında
     const vx = v.offsetCm[0] * 10;
     const vy = v.offsetCm[1] * 10;
@@ -949,27 +952,25 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
       if (view === 'lit') {
         const t = upload(input);
         const dist = v.distance ?? 'loupe';
-        // Göz / Uzak "malzeme" karakteri (rölyef, melanj, tüy, yayılma, yumuşak kenar) — filtreli ve net yolda aynı
-        if (dist !== 'loupe') v = { ...v, tuning: materialTuning(dist, v.tuning) };
-        // Net çizim ağırlığı: Göz / Uzak'ta algısal filtre ekranda ~1.5 px'i aşınca bulanıklık artmaz, 1.5 → 4 px
-        // arasında net (lup tipi) çizime karışır (viewDistance.sharpBlend). Mobil profil yalnız filtreli yolu kullanır.
-        const wSharp = profile === 'mobile' ? 0 : sharpWeight(dist, ppm);
-        // Lup'ta gezinme (pan / zoom) sırasında da filtreli yol: her karede G-buffer + ışık yerine pişirilmiş döşemeden
-        // örnekleme (≤ 4 ms hedefi); durunca keskin yol (kendi önbelleğiyle) geri gelir
-        const filtered =
-          dist === 'loupe'
-            ? useFilteredPath(dist, ppm, minYarnDiameterMm(input)) || (!!v.navigating && profile === 'desktop')
-            : wSharp < 1;
-        const drawSharp = (alpha: number) => {
-          const bs = ensureBake(t, input, v, false);
-          const hairTex = v.quality === 'high' ? ensureHair(t, input, v) : null;
-          const { g } = renderScreenGBuffer(input, v);
-          drawLit(t, input, v, g, bs, hairTex, null, [ppm, ppm], offsetMm, alpha);
-        };
-        const b = ensureBake(t, input, v, filtered);
-        if (b.filtered && b.color) {
+        const fdist = farFilterDistance(dist);
+        const tnU = v.tuning ?? {};
+        // Zemin: gerçekçi lup kendi modunun zemini (Lup koyu gri, Göz / Uzak açık); uzak görünüm ise Göz / Uzak zemini —
+        // Lup uzaklaşınca koyu zemin yerine Göz zemini. Kullanıcı zemini elle seçtiyse ikisine de aynı değer verilir.
+        const bgReal = tnU.background ?? 'darkgray';
+        const bgFar = tnU.farBackground ?? (dist === 'loupe' ? 'light' : bgReal);
+        // Gerçekçi lup: Lup tam detay; Göz / Uzak "malzeme" karakteri (iplik araları kapalı, açık zemin)
+        const vReal: ViewParams = dist === 'loupe' ? v : { ...v, tuning: materialTuning(dist, tnU) };
+        // Uzak görünüm: Göz (ya da Uzak) filtresi, malzeme karakteri, uzak zemin
+        const vFar: ViewParams = { ...v, distance: fdist, tuning: { ...materialTuning(fdist, tnU), background: bgFar } };
+        // Ölçeğe bağlı geçiş (viewDistance.REAL_BLEND_*): ortalama iplik çapı < 6 px uzak görünüm, 6–12 px blend,
+        // > 12 px tam lup. Her panel kendi px/mm'sine göre bağımsız karar verir. Büyüteç dairesi: forceReal.
+        let wReal = tnU.forceReal ? 1 : realWeight(meanYarnDiameterMm(input), ppm);
+        if (profile === 'mobile') wReal = wReal >= 0.5 ? 1 : 0; // mobil: karışım yok (döşeme tek parça)
+        const drawFar = (vf: ViewParams) => {
+          const b = ensureBake(t, input, vf, true);
+          if (!b.color) return false;
           // Filtreli yol: ön süzülmüş mip'li döşemeden örnekleme (LOD ayak izinden) + yönlü iplik sapması
-          const irl = resolveIrregularity(input, v.tuning?.irregularity ?? 1);
+          const irl = resolveIrregularity(input, vf.tuning?.irregularity ?? 1);
           const vt = ensureVariation(irl.seed);
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
           gl.viewport(0, 0, canvas.width, canvas.height);
@@ -985,28 +986,47 @@ export function createRealisticRenderer(canvas: AnyCanvas, opts: RendererOptions
           gl.uniform2f(uv('uPxPerMmXY'), ppm, ppm);
           gl.uniform2f(uv('uPitchMm'), pitchMm(input.density.warpPerCm), pitchMm(input.density.weftPerCm));
           gl.uniform1i(uv('uVarN'), THREAD_VARIATION_PERIOD);
-          setFabricWarp(uv, input, v, true);
+          setFabricWarp(uv, input, vf, true);
           // ton sapması: OKLab ΔE/100 → doğrusal parlaklıkta ≈ 3·ΔL (L³); kalınlık ±% → alan payı ≈ yarısı
           const dv = opts.debugFilter?.bakeVariation ? 0 : 1;
           gl.uniform2f(uv('uVarAmp'), (dv * 3 * irl.colorDeltaE * VIEW_TONE_DE_SCALE) / (100 * 1.1489125), dv * 0.5 * irl.thickness);
           gl.drawArrays(gl.TRIANGLES, 0, 3);
-          if (dist !== 'loupe' && wSharp > 0) drawSharp(wSharp);
+          return true;
+        };
+        const drawSharp = (vr: ViewParams, alpha: number) => {
+          const bs = ensureBake(t, input, vr, false);
+          const hairTex = vr.quality === 'high' ? ensureHair(t, input, vr) : null;
+          const { g } = renderScreenGBuffer(input, vr);
+          drawLit(t, input, vr, g, bs, hairTex, null, [ppm, ppm], offsetMm, alpha);
+        };
+        if (wReal < 1) {
+          // uzak görünüm (+ blend bölgesinde üstüne gerçekçi lup; iki görünüm de önbellekten hazır)
+          drawFar(vFar);
+          if (wReal > 0) drawSharp(vReal, wReal);
           return;
         }
-        if (profile === 'mobile' && b.color) {
-          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-          gl.viewport(0, 0, canvas.width, canvas.height);
-          gl.useProgram(tileProg);
-          gl.bindVertexArray(vao);
-          bindTex(0, b.color, ut('uColorTile'));
-          gl.uniform2f(ut('uTileMm'), b.tile.mm[0], b.tile.mm[1]);
-          gl.uniform2f(ut('uOffsetMm'), offsetMm[0], offsetMm[1]);
-          gl.uniform2f(ut('uPxPerMmXY'), ppm, ppm);
-          setFabricWarp(ut, input, v, true);
-          gl.drawArrays(gl.TRIANGLES, 0, 3);
-          return;
+        // tam gerçekçi lup
+        if (dist === 'loupe' && v.navigating && profile === 'desktop') {
+          // gezinme: her karede G-buffer + ışık yerine pişirilmiş (filtresiz) döşemeden örnekleme (≤ 4 ms hedefi)
+          if (drawFar(vReal)) return;
         }
-        drawSharp(1);
+        if (profile === 'mobile') {
+          const bm = ensureBake(t, input, vReal, false);
+          if (bm.color) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.useProgram(tileProg);
+            gl.bindVertexArray(vao);
+            bindTex(0, bm.color, ut('uColorTile'));
+            gl.uniform2f(ut('uTileMm'), bm.tile.mm[0], bm.tile.mm[1]);
+            gl.uniform2f(ut('uOffsetMm'), offsetMm[0], offsetMm[1]);
+            gl.uniform2f(ut('uPxPerMmXY'), ppm, ppm);
+            setFabricWarp(ut, input, vReal, true);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+            return;
+          }
+        }
+        drawSharp(vReal, 1);
         return;
       }
       const { t, g } = renderScreenGBuffer(input, v);

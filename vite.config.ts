@@ -27,7 +27,7 @@ function realisticSnapshots(): Plugin {
           try {
             const { phase, name, kind, data } = JSON.parse(body);
             // Faz 1..9 → phase<N>; düzeltme turları ve demo / bakış mesafesi adla (ör. 'fix-v2', 'demo')
-            const named = typeof phase === 'string' && /^(fix-v\d+|demo|view-distance|view-v\d+)$/.test(phase);
+            const named = typeof phase === 'string' && /^(fix-v\d+|demo|view-distance|view-v\d+|scale-switch)$/.test(phase);
             if (!named && (!Number.isInteger(phase) || phase < 1 || phase > 9)) throw new Error('geçersiz faz');
             if (typeof name !== 'string' || !/^[a-z0-9_-]+\.(png|json)$/.test(name)) throw new Error('geçersiz dosya adı');
             const dir = resolve(server.config.root, 'samples', 'realistic', named ? phase : `phase${phase}`);

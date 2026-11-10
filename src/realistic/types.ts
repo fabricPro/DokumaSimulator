@@ -120,6 +120,13 @@ export interface Tuning {
    * 0 = kapalı, varsayılan 1. Seed'e bağlı, deterministik.
    */
   fabricIrregularity?: number;
+  /**
+   * Uzak görünümün zemini (ölçek küçükken; Lup modunda bile). Verilmezse: Göz / Uzak'ta `background`, Lup'ta 'light'
+   * (Lup uzaklaşınca Göz görünümüne düşer, koyu zemin yerine Göz zemini).
+   */
+  farBackground?: 'darkgray' | 'black' | 'backlight' | 'light';
+  /** Büyüteç dairesi: ölçeğe bakmadan tam gerçekçi lup çiz (uzak görünümde imleç altı). */
+  forceReal?: boolean;
   /** Yumuşak iplik kenarı (kesit yarı genişliği oranı): kenarda lif dolgusu; 0 = yalnız piksel yumuşatması. Göz / Uzak varsayılanı 0.12. */
   softEdge?: number;
   /** İplik yayılması çarpanı (Durak 2-E; 0 = sert yuvarlak kesit, 1 = varsayılan tip modeli). */

@@ -1,0 +1,95 @@
+{
+  "note": "Lup modu; iplik px = ortalama çözgü / atkı çapı × px/mm; gerçekçi ağırlık: 6 px altı 0 (uzak görünüm: Göz filtresi + açık zemin), 12 px üstü 1 (tam lup).",
+  "rows": [
+    {
+      "panel": "Tezgah",
+      "pxPerMm": 2,
+      "meanYarnPx": 0.47,
+      "realWeight": 0,
+      "warpPerCm": 20
+    },
+    {
+      "panel": "Mamul",
+      "pxPerMm": 2,
+      "meanYarnPx": 0.47,
+      "realWeight": 0,
+      "warpPerCm": 22.22222222222222
+    },
+    {
+      "panel": "Tezgah",
+      "pxPerMm": 6,
+      "meanYarnPx": 1.41,
+      "realWeight": 0,
+      "warpPerCm": 20
+    },
+    {
+      "panel": "Mamul",
+      "pxPerMm": 6,
+      "meanYarnPx": 1.41,
+      "realWeight": 0,
+      "warpPerCm": 22.22222222222222
+    },
+    {
+      "panel": "Tezgah",
+      "pxPerMm": 9,
+      "meanYarnPx": 2.11,
+      "realWeight": 0,
+      "warpPerCm": 20
+    },
+    {
+      "panel": "Mamul",
+      "pxPerMm": 9,
+      "meanYarnPx": 2.11,
+      "realWeight": 0,
+      "warpPerCm": 22.22222222222222
+    },
+    {
+      "panel": "Tezgah",
+      "pxPerMm": 20,
+      "meanYarnPx": 4.69,
+      "realWeight": 0,
+      "warpPerCm": 20
+    },
+    {
+      "panel": "Mamul",
+      "pxPerMm": 20,
+      "meanYarnPx": 4.69,
+      "realWeight": 0,
+      "warpPerCm": 22.22222222222222
+    },
+    {
+      "panel": "Tezgah",
+      "pxPerMm": 100,
+      "meanYarnPx": 23.47,
+      "realWeight": 1,
+      "warpPerCm": 20
+    },
+    {
+      "panel": "Mamul",
+      "pxPerMm": 100,
+      "meanYarnPx": 23.47,
+      "realWeight": 1,
+      "warpPerCm": 22.22222222222222
+    }
+  ],
+  "perfMs": {
+    "note": "Intel HD 4600, duvar saati render + 1 piksel okuma (~1.5 ms okuma payı dahil); medyan",
+    "far9pxmm": {
+      "still_378x534": 2.3,
+      "moving_half_189x267": 1.2
+    },
+    "blend35pxmm": {
+      "still_378x534": 6.8,
+      "moving_half_189x267": 2.6
+    },
+    "real100pxmm": {
+      "still_378x534": 5.4,
+      "moving_half_189x267": 1
+    },
+    "movingFull1024": {
+      "far9": 7.9,
+      "blend35": 22.9,
+      "real100": 5.3
+    }
+  }
+}
