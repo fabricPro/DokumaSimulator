@@ -82,7 +82,7 @@ export function MetricsBar({
         {s.jammedWarp && <Badge level="error">Çözgü sıkıştı: tezgahta iplikler sığmıyor (tarak)</Badge>}
         {s.jammedWeft && <Badge level="error">Atkı sıkıştı: tezgahta iplikler sığmıyor</Badge>}
         {s.warnings.map((w, i) => (
-          <Badge key={i} level={/mümkün değil/.test(w) ? 'error' : 'warn'}>
+          <Badge key={i} level={/mümkün değil|geçersiz|Atkı sıkıştı/.test(w) ? 'error' : 'warn'}>
             {w}
           </Badge>
         ))}

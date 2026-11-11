@@ -14,6 +14,7 @@
  */
 import { PeriodicPositionGenerator, lcm } from '../physical/positions';
 import { deriveReed } from './derive';
+import { placeInDent } from './dent';
 import { IDENTITY_DRAWING_IN, type DrawingInPlan, type ReedSpec } from './types';
 
 /** Tel sığmama eşiği: Σ çap > açıklık / FIT_LIMIT. */
@@ -83,28 +84,15 @@ export class ReedPositionGenerator extends PeriodicPositionGenerator {
       for (let t = 0; t < n; t++) members.push(seq + t);
       // Tahar planı: dağıtım sırasındaki konum → çözgü indeksi (özdeşlikte aynı)
       const warps = members.map((m) => warpAtSequence(drawingIn, m, P));
-      let sumD = 0;
-      for (const g of warps) sumD += diameterOf(g);
-      if (sumD > open / FIT_LIMIT) overfull.push({ dent: j, ends: n, sumDiameterMm: sumD, openingMm: open });
-      let x: number;
-      let gap: number;
-      // Sığmayan dişte çaplar açıklığa ölçeklenir (sc < 1): merkezler diş açıklığı içinde
-      let sc = 1;
-      if (sumD <= open) {
-        gap = (open - sumD) / (n + 1);
-        x = center - open / 2 + gap;
-      } else {
-        gap = 0;
-        sc = open / sumD;
-        x = center - open / 2;
-      }
-      for (const g of warps) {
-        const dg = diameterOf(g) * sc;
+      const ds = warps.map((g) => diameterOf(g));
+      // Ortak diş yerleştirme (reed/dent.ts): tarakta teller açıklığa yayılır, sığmazsa açıklığa sıkışır
+      const pl = placeInDent(center, open, ds, 'spread');
+      if (pl.sumDiameter > open / FIT_LIMIT) overfull.push({ dent: j, ends: n, sumDiameterMm: pl.sumDiameter, openingMm: open });
+      warps.forEach((g, t) => {
         const local = ((g % P) + P) % P;
-        offsets[local] = x + dg / 2;
+        offsets[local] = pl.centers[t];
         dentOfLocal[local] = j;
-        x += dg + gap;
-      }
+      });
       seq += n;
     }
     super(offsets, dentsPerPeriod * p);
@@ -135,6 +123,11 @@ export class ReedPositionGenerator extends PeriodicPositionGenerator {
       center: left + p / 2,
       ends: this.report[reportIndex],
     };
+  }
+
+  /** Genel diş kaynağı arayüzü (physical/warpLayout.ts DentSource): tel g'nin dişi. */
+  dentOf(g: number): number {
+    return this.dentOfWarp(g);
   }
 
   /** Global çözgü g'nin dişi. */

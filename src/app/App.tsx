@@ -7,6 +7,7 @@ import {
   slotOf,
   structureMetrics,
   withThreading,
+  activeRegulator,
   type FabricSpec,
 } from '../render-engine';
 import type { PhysicalInfo } from '../render-engine/worker';
@@ -212,8 +213,10 @@ export function App() {
     const weaveF = spec.weave.length;
     const seqF = Math.max(1, spec.weftSequence.length);
     const reportF = spec.weftDensityReport?.length ?? 0;
+    const regL = activeRegulator(spec.weftRegulator)?.length ?? 0;
     let allF = lcm(weaveF, seqF);
     if (reportF > 0) allF = lcm(allF, reportF);
+    if (regL > 0) allF = lcm(allF, regL);
     const loomPitchF = positions ? positions.weft.loom.meanPitchMm() : 10 / spec.weftDensityLoom;
     const finPitchF = positions ? positions.weft.finished.meanPitchMm() : loomPitchF;
     return {
@@ -227,6 +230,7 @@ export function App() {
       weaveF,
       seqF,
       reportF,
+      regL,
       allF,
       loomMmF: allF * loomPitchF,
       finMmF: allF * finPitchF,
@@ -262,7 +266,7 @@ export function App() {
         const shrink = keepYarns
           ? { warpShrinkPct: s.warpShrinkPct, weftShrinkPct: s.weftShrinkPct }
           : { warpShrinkPct: DEMO_SHRINK.warpPct, weftShrinkPct: DEMO_SHRINK.weftPct };
-        return { ...s, ...out, ...shrink, reed: undefined, weftDensityReport: undefined };
+        return { ...s, ...out, ...shrink, reed: undefined, weftDensityReport: undefined, weftRegulator: undefined };
       });
       setAtki(next);
       const v = next.belge.json.varyasyonlar[next.varyant];
@@ -466,9 +470,9 @@ export function App() {
       </aside>
       <section className="editor-col">
         {spec.threading && spec.liftplan ? (
-          <WeaveEditor mode="armur" weave={spec.liftplan} onChange={(lp) => setSpec((s) => withThreading(s, s.threading!, lp, lp[0].length))} />
+          <WeaveEditor mode="armur" regulator={activeRegulator(spec.weftRegulator)} weave={spec.liftplan} onChange={(lp) => setSpec((s) => withThreading(s, s.threading!, lp, lp[0].length))} />
         ) : (
-          <WeaveEditor weave={spec.weave} onChange={(weave) => setSpec((s) => ({ ...s, weave }))} />
+          <WeaveEditor weave={spec.weave} regulator={activeRegulator(spec.weftRegulator)} onChange={(weave) => setSpec((s) => ({ ...s, weave }))} />
         )}
         <ThreadingEditor spec={spec} onChange={setSpec} />
       </section>
@@ -624,6 +628,11 @@ export function App() {
           {repeats.reportF > 0 && (
             <span>
               atkı sıklık raporu <b>{repeats.reportF} atkı</b>
+            </span>
+          )}
+          {repeats.regL > 0 && (
+            <span>
+              regülatör <b>{repeats.regL} atkı</b>
             </span>
           )}
           <span className="lcm">

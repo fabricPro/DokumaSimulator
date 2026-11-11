@@ -14,6 +14,7 @@ import { appliedShrinkPct, buildFabricPositions, type AxisPositions, type Fabric
 import { packedOpenPctOfSpec } from '../../realistic/adapters/positionsFromSpec';
 import type { PackingOverrides } from '../../realistic/packing';
 import { racetrack } from './simulate';
+import { activeRegulator, regulatorEffectiveDensity } from '../weft/regulator';
 import { slotTable } from './yarns';
 
 export type WarningLevel = 'ok' | 'warn' | 'high';
@@ -94,8 +95,13 @@ export function effectiveLoomWarpDensity(spec: FabricSpec, positions?: FabricPos
   return p?.reedDensity ?? spec.warpDensityLoom;
 }
 
-/** Atkı sıklık raporu varsa ortalama, yoksa girilen tezgah atkı sıklığı. */
+/**
+ * Geçerli regülatör varsa etkin sıklık (makine × L / (L − R)); yoksa atkı sıklık raporu varsa ortalama, yoksa girilen
+ * tezgah atkı sıklığı.
+ */
 export function effectiveLoomWeftDensity(spec: FabricSpec): number {
+  const reg = activeRegulator(spec.weftRegulator);
+  if (reg) return regulatorEffectiveDensity(spec.weftDensityLoom, reg);
   const r = spec.weftDensityReport;
   if (!r || r.length === 0) return spec.weftDensityLoom;
   return (spec.weftDensityLoom * r.length) / r.reduce((a, b) => a + b, 0);

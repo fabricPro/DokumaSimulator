@@ -24,6 +24,7 @@ import { diameterMm as yarnDiameterMm, toTex as yarnToTex } from '../yarn';
 import { pitchMm } from '../scale';
 import { packingSnapshots } from './packingSnapshots';
 import { reedFixSnapshots } from './reedFixSnapshots';
+import { regulatorSnapshots } from './regulatorSnapshots';
 import { threadingSnapshots } from './threadingSnapshots';
 
 declare global {
@@ -1608,6 +1609,14 @@ async function scaleSwitchSnapshots(say: (t: string) => void) {
 
 async function run() {
   const tagParam = new URLSearchParams(location.search).get('phase') ?? '1';
+  if (tagParam === 'regulator') {
+    SAVE_TAG = 'regulator';
+    const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');
+    window.__snapshotsReport = await regulatorSnapshots(say);
+    window.__snapshotsDone = true;
+    say('Bitti.');
+    return;
+  }
   if (tagParam === 'reed-fix') {
     SAVE_TAG = 'reed-fix';
     const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');

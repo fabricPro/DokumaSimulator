@@ -27,6 +27,7 @@ import {
   type PositionGenerator,
 } from './positions';
 import { ReedPositionGenerator } from '../reed/layout';
+import { WeftRegulatorGenerator, activeRegulator, regulatorStats } from '../weft/regulator';
 import { MIN_SQUEEZE } from './squeeze';
 import { slotOf, slotTable } from './yarns';
 
@@ -142,8 +143,10 @@ export interface FabricPositions {
   reed?: ReedPositionGenerator;
   /** Tarak varsa türetilen tezgah çözgü sıklığı. */
   reedDensity?: number;
-  /** Atkı sıklık raporu varsa ortalama tezgah atkı sıklığı. */
+  /** Atkı sıklık raporu ya da regülatör varsa ortalama (etkin) tezgah atkı sıklığı. */
   weftLoomDensity?: number;
+  /** Geçerli atkı regülatörü varsa tezgah atkı konum üreticisi (diş geometrisiyle). */
+  weftRegulator?: WeftRegulatorGenerator;
   reedOverfullDents: number;
   warnings: string[];
 }
@@ -260,7 +263,33 @@ export function buildFabricPositions(spec: FabricSpec): FabricPositions {
   let weftLoom: PositionGenerator = new UniformPositionGenerator(spec.weftDensityLoom);
   let weftLoomDensity: number | undefined;
   let weftLoomPeriod = 1;
-  if (spec.weftDensityReport && spec.weftDensityReport.length > 0) {
+  let weftRegulator: WeftRegulatorGenerator | undefined;
+  const regSt = regulatorStats(spec.weftRegulator);
+  if (spec.weftRegulator && spec.weftRegulator.length > 0 && !regSt.valid) {
+    warnings.push('Regülatör raporu geçersiz: hiç normal (N) atkı yok (R sayısı = rapor uzunluğu); regülatör yok sayılıyor.');
+  }
+  const regReport = activeRegulator(spec.weftRegulator);
+  if (regReport) {
+    // Atkı dişi: dişteki atkılar temasla yan yana (tarağın atkı yönündeki karşılığı); sıklık alanı = makine sıklığı
+    const wt = slotTable(spec.weftSlots);
+    weftRegulator = new WeftRegulatorGenerator(
+      spec.weftDensityLoom,
+      regReport,
+      (g) => wt.diameter[slotOf(spec.weftSequence, g, spec.weftSlots.length)],
+      Math.max(1, spec.weftSequence.length),
+    );
+    weftLoom = weftRegulator;
+    weftLoomPeriod = weftRegulator.period;
+    weftLoomDensity = weftRegulator.period / (weftRegulator.periodWidth / 10);
+    for (const o of weftRegulator.overfull) {
+      warnings.push(
+        `Atkı sıkıştı: regülatör grubu aralığa sığmıyor (${o.dent + 1}. dişte ${o.picks} atkı, Σ çap ${o.sumDiameterMm.toFixed(2)} mm > diş aralığı ${o.openingMm.toFixed(2)} mm).`,
+      );
+    }
+    if (spec.weftDensityReport && spec.weftDensityReport.length > 0) {
+      warnings.push('Atkı sıklık raporu regülatörle birlikte kullanılamaz; yok sayılıyor.');
+    }
+  } else if (spec.weftDensityReport && spec.weftDensityReport.length > 0) {
     const wr = new WeftReportPositionGenerator(spec.weftDensityLoom, spec.weftDensityReport);
     weftLoom = wr;
     weftLoomPeriod = wr.period;
@@ -293,7 +322,7 @@ export function buildFabricPositions(spec: FabricSpec): FabricPositions {
     c: relax.c,
     rho: spec.relax?.rhoWeft ?? relax.rho,
   });
-  return { warp, weft, reed, reedDensity, weftLoomDensity, reedOverfullDents: overfull, warnings };
+  return { warp, weft, reed, reedDensity, weftLoomDensity, weftRegulator, reedOverfullDents: overfull, warnings };
 }
 
 /**

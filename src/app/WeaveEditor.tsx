@@ -6,12 +6,14 @@ interface Props {
   onChange: (w: boolean[][]) => void;
   /** 'armur': tahar açıkken atkı × çerçeve (sütun = çerçeve). */
   mode?: 'weave' | 'armur';
+  /** Atkı regülatörü raporu: satır hizalı küçük N / R sütunu (atkı r için rapor[r mod L]). */
+  regulator?: Array<'N' | 'R'>;
 }
 
 const MAX_DIM = 200;
 
 /** Örgü ızgarası. Görselde 0. atkı en altta; siyah = çözgü üstte. */
-export function WeaveEditor({ weave, onChange, mode = 'weave' }: Props) {
+export function WeaveEditor({ weave, onChange, mode = 'weave', regulator }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rows = weave.length;
   const cols = weave[0].length;
@@ -126,7 +128,19 @@ export function WeaveEditor({ weave, onChange, mode = 'weave' }: Props) {
           Ters
         </button>
       </div>
-      <div className="weave-grid">
+      <div className="weave-grid weave-with-reg">
+        {regulator && (
+          <div className="reg-col" style={{ gridTemplateRows: `repeat(${rows}, ${cellPx}px)` }} title="Regülatör (DOB: R, PID: S) — atkı bir öncekinin hizasına atılır">
+            {Array.from({ length: rows }, (_, k) => rows - 1 - k).map((r) => {
+              const t = regulator[r % regulator.length];
+              return (
+                <span key={r} className={t === 'R' ? 'r' : ''} style={{ fontSize: Math.max(7, Math.min(11, cellPx - 2)) }}>
+                  {t}
+                </span>
+              );
+            })}
+          </div>
+        )}
         <canvas ref={canvasRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} />
       </div>
       <p className="hint">

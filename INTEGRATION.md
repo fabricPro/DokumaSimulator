@@ -273,6 +273,14 @@ const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // ekranda
 (`render-engine/threading.ts effectiveWeave`). Gerçekçi modül yalnız `weave`'i okur; Tezgah tarafında tahar / armür
 aynı fonksiyonla örgü matrisine çevrilip verilir. Tahar yoksa örgü düz tahar olarak yorumlanır.
 
+## 6e. Atkı regülatörü
+
+`FabricSpec.weftRegulator` (N / R dizisi) tarağın atkı yönündeki karşılığıdır: R atkı bir önceki atkının dişine
+eklenir, dişteki atkılar temasla yan yana dizilir. Rapor varken `weftDensityLoom` MAKİNE sıklığıdır; etkin sıklık =
+makine × L / (L − R sayısı). Konumlar `render-engine/weft/regulator.ts` (`WeftRegulatorGenerator`) ile üretilir ve
+tarak gibi `FabricInput.positions` (+ `limitLMm / limitRMm` atkı duvarları) olarak gerçekçi modüle verilir; modül
+tarafında ek bir şey gerekmez. Rapor yoksa davranış eskisiyle aynıdır.
+
 ## 7. Yalnız yakın görünüm / büyüteç
 
 Lup modunda gerçekçi görünüm uzak ölçekte bilgi katmaz ve GPU'yu boşa harcar. Önerilen kullanım (Dokuma

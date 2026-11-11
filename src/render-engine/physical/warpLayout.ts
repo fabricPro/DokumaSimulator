@@ -27,7 +27,13 @@ export interface AxisThreadLayout {
   wallR?: Float64Array;
 }
 
-function axisLayout(ax: AxisPositions, which: 'loom' | 'finished', first: number, reed?: FabricPositions['reed']): AxisThreadLayout {
+/** Diş kaynağı: tarak (çözgü) ya da atkı regülatörü (atkı). dentAt: dişin sınırları (mm). */
+export interface DentSource {
+  dentOf(g: number): number;
+  dentAt(d: number): { left: number; right: number };
+}
+
+function axisLayout(ax: AxisPositions, which: 'loom' | 'finished', first: number, reed?: DentSource): AxisThreadLayout {
   const P = ax.period;
   const gen = ax[which];
   const c = gen.centers(first - 1, P + 3); // g = first − 1 .. first + P + 1
@@ -41,7 +47,7 @@ function axisLayout(ax: AxisPositions, which: 'loom' | 'finished', first: number
   for (let k = 0; k < P; k++) {
     const g = first + k;
     const a = k + 1;
-    dent[k] = reed.dentOfWarp(g);
+    dent[k] = reed.dentOf(g);
     const geo = reed.dentAt(dent[k]);
     // Tezgahta merkezden dişin sınırlarına (diş teli ortası). Merkezler zaten iç açıklıkta (ReedPositionGenerator;
     // sığmayan dişte açıklığa sıkıştırılır); kesit diş teline kadar yayılabilir ama komşu dişe / boş dişe geçemez.
@@ -66,6 +72,6 @@ export function threadLayout(
 ): { warp: AxisThreadLayout; weft: AxisThreadLayout } {
   return {
     warp: axisLayout(positions.warp, which, first, positions.reed),
-    weft: axisLayout(positions.weft, which, first),
+    weft: axisLayout(positions.weft, which, first, positions.weftRegulator),
   };
 }

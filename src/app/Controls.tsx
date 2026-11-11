@@ -1,10 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { ReedPanel } from './ReedPanel';
+import { RegulatorPanel } from './RegulatorPanel';
 import { WeftReportField } from './WeftReportField';
 import { bukumTurM, sonucNumara, type IplikTanimi, type IplikTip, type Parlaklik } from '../adapters/iplik';
 import {
   DEFAULT_RELAX,
   appliedShrinkPct,
+  activeRegulator,
   buildFabricPositions,
   MAX_SLOTS,
   SLOT_NAMES,
@@ -395,6 +397,7 @@ export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s
   const applied = appliedShrinkPct(spec, positions);
   const fin = finishedDensities(loomWarp, effectiveLoomWeftDensity(spec), applied.warp, applied.weft);
   const relax = { ...DEFAULT_RELAX, ...(spec.relax ?? {}) };
+  const regOn = !!activeRegulator(spec.weftRegulator);
   const [adv, setAdv] = useState(false);
   return (
     <section className="panel">
@@ -414,10 +417,23 @@ export function FabricPanel({ spec, onChange }: { spec: FabricSpec; onChange: (s
         ) : (
           <NumberField label="Tezgah çözgü sıklığı" suffix="tel/cm" value={spec.warpDensityLoom} step={0.5} min={1} onChange={(v) => set('warpDensityLoom', v)} />
         )}
-        <NumberField label="Tezgah atkı sıklığı" suffix="atkı/cm" value={spec.weftDensityLoom} step={0.5} min={1} onChange={(v) => set('weftDensityLoom', v)} />
+        <NumberField
+          label={regOn ? 'Makine atkı sıklığı' : 'Tezgah atkı sıklığı'}
+          suffix={regOn ? 'diş/cm' : 'atkı/cm'}
+          value={spec.weftDensityLoom}
+          step={0.5}
+          min={1}
+          onChange={(v) => set('weftDensityLoom', v)}
+        />
       </div>
+      {regOn && (
+        <p className="hint">
+          makine {spec.weftDensityLoom} · etkin {effectiveLoomWeftDensity(spec).toFixed(2)} atkı/cm
+        </p>
+      )}
       <ReedPanel spec={spec} onChange={onChange} />
       <WeftReportField spec={spec} onChange={onChange} />
+      <RegulatorPanel spec={spec} onChange={onChange} />
       <Slider label="Çözgü çekmesi (boy)" value={spec.warpShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('warpShrinkPct', v)} format={(v) => `%${v}`} />
       <Slider label="Atkı çekmesi (en)" value={spec.weftShrinkPct} min={0} max={30} step={0.5} onChange={(v) => set('weftShrinkPct', v)} format={(v) => `%${v}`} />
       <Slider label="Kıvrım payı (çözgü)" value={spec.warpCrimpShare} min={0} max={1} step={0.01} onChange={(v) => set('warpCrimpShare', v)} format={(v) => v.toFixed(2)} />

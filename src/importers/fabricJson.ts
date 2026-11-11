@@ -4,6 +4,7 @@
  */
 import { MAX_SLOTS, SLOT_NAMES, normalizeReedSpec, normalizeSystem, parseDenting, parseWeftReport, type FabricSpec, type YarnSlot, type YarnSystem } from '../render-engine';
 import { colorsToSlots } from './slots';
+import { parseRegulator } from '../render-engine/weft/regulator';
 import { effectiveWeave } from '../render-engine/threading';
 
 export interface ParsedFabric {
@@ -98,6 +99,7 @@ export function validateSpecV2(raw: any): FabricSpec {
         }
       : {}),
     ...checkWeftReport(raw.weftDensityReport),
+    ...checkRegulator(raw.weftRegulator),
     ...(Array.isArray(raw.yarns) ? { yarns: raw.yarns } : {}),
     ...checkThreading(raw, weave),
   };
@@ -122,6 +124,14 @@ function checkThreading(raw: any, weave: boolean[][]): Partial<FabricSpec> {
   });
   void weave;
   return { threading, liftplan, frames: F, weave: effectiveWeave(threading, liftplan) };
+}
+
+/** Atkı regülatörü raporu ('N' / 'R' dizisi ya da "N R R" metni): yoksa regülatör yok (eski dosyalar). */
+function checkRegulator(raw: unknown): { weftRegulator?: Array<'N' | 'R'> } {
+  if (raw === undefined || raw === null) return {};
+  const r = parseRegulator(Array.isArray(raw) ? raw.join(' ') : String(raw));
+  if (!r.ok) throw new Error('weftRegulator geçersiz: ' + r.error);
+  return { weftRegulator: r.report };
 }
 
 /** Atkı sıklık raporu: yoksa eşit adım. */

@@ -65,6 +65,12 @@ export interface FabricSpec {
   /** Atkı sıklık raporu: atkı başına tezgah adım çarpanı (ör. [1,1,1,3]); boşsa eşit adım. */
   weftDensityReport?: number[];
   /**
+   * Atkı regülatörü raporu (N = normal, R = regülatörlü: atkı bir öncekinin hizasına atılır; DOB "R", PID "S").
+   * Varsa `weftDensityLoom` MAKİNE sıklığıdır (diş / cm), etkin sıklık = makine × L / (L − R). Yoksa regülatör yok.
+   * Atkı sıklık raporuyla birlikte kullanılamaz (regülatör geçerliyse o yok sayılır). weft/regulator.ts.
+   */
+  weftRegulator?: Array<'N' | 'R'>;
+  /**
    * Tahar: tel başına çerçeve (0 tabanlı), kendi rapor uzunluğu. Armür ile birlikte verilirse `weave` bunlardan
    * türetilir (render-engine/threading.ts effectiveWeave); yoksa `weave` düz tahar olarak yorumlanır.
    */
