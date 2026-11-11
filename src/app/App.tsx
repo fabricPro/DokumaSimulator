@@ -6,6 +6,7 @@ import {
   lcm,
   slotOf,
   structureMetrics,
+  withThreading,
   type FabricSpec,
 } from '../render-engine';
 import type { PhysicalInfo } from '../render-engine/worker';
@@ -21,6 +22,7 @@ import { FabricPane, LOUPE_ZOOM, MAX_PPM, MIN_PPM, REALISTIC_FULL_PPM, type MmVi
 import { MetricsBar } from './MetricsBar';
 import { RenderClient, imageToCanvas } from './renderClient';
 import { WeaveEditor } from './WeaveEditor';
+import { ThreadingEditor } from './ThreadingEditor';
 import type { BackgroundPref, DistancePref, QualityPref } from './RealisticLayer';
 import { CARD_WIDTH_MM, cssPxPerMm } from '../realistic/viewDistance';
 
@@ -280,7 +282,12 @@ export function App() {
       } else if (name.endsWith('.wif')) {
         const r = parseWif(text);
         const warnings = [...r.warnings];
-        const next: FabricSpec = { ...spec, weave: r.weave };
+        // Tel bazlı model: THREADING → tahar, TIEUP/TREADLING ya da LIFTPLAN → armür (weave bunlardan türetilir)
+        const base: FabricSpec = { ...spec, weave: r.weave };
+        delete base.threading;
+        delete base.liftplan;
+        delete base.frames;
+        const next: FabricSpec = r.threading && r.liftplan ? withThreading(base, r.threading, r.liftplan, r.frames) : base;
         if (r.warpColors) {
           const w = colorsToSlots(r.warpColors, spec.warpSlots[0], 'Çözgü');
           next.warpSlots = w.slots;
@@ -458,7 +465,12 @@ export function App() {
         <FabricPanel spec={spec} onChange={setSpec} />
       </aside>
       <section className="editor-col">
-        <WeaveEditor weave={spec.weave} onChange={(weave) => setSpec((s) => ({ ...s, weave }))} />
+        {spec.threading && spec.liftplan ? (
+          <WeaveEditor mode="armur" weave={spec.liftplan} onChange={(lp) => setSpec((s) => withThreading(s, s.threading!, lp, lp[0].length))} />
+        ) : (
+          <WeaveEditor weave={spec.weave} onChange={(weave) => setSpec((s) => ({ ...s, weave }))} />
+        )}
+        <ThreadingEditor spec={spec} onChange={setSpec} />
       </section>
       <main className="render-col">
         <div className="view-bar">

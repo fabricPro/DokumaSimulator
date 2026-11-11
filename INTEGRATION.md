@@ -261,6 +261,18 @@ const pxPerMm = mod.cssPxPerMm(ekranKalibrasyonu) * devicePixelRatio; // ekranda
   korunur. Parametreler `Tuning.packing` (tip başına `maxAspect`, `fill`; global `compression`) ile verilir;
   kalibrasyon preset'inde `packing` alanı olarak saklanır. Metriklerdeki açıklık / örtme aynı modelden gelir.
 
+- **Tel indeksi:** gerçekçi tel `i`, klasik render'ın `g = i + 1` telidir (eşit aralıkta ikisi de aynı mm'de).
+  Dokuma Simülatörü adaptörü konum tablosunu `g = 1..P`'den alır, örgü ve dizileri bir tel kaydırır
+  (`render-engine/physical/warpLayout.ts` tek kaynak). Tezgah adaptörü de aynı kuralı izlemelidir.
+- **Tarak duvarı:** tarak varsa `limitLMm / limitRMm` her tel için dişinin sınırlarıdır; paketleme, konum
+  düzensizliği ve yol sapması teli dişinden çıkaramaz.
+
+## 6d. Tel bazlı çözgü (tahar + armür)
+
+`FabricSpec.threading` (tel → çerçeve) ve `FabricSpec.liftplan` (atkı × çerçeve) varsa `weave` bunlardan türetilir
+(`render-engine/threading.ts effectiveWeave`). Gerçekçi modül yalnız `weave`'i okur; Tezgah tarafında tahar / armür
+aynı fonksiyonla örgü matrisine çevrilip verilir. Tahar yoksa örgü düz tahar olarak yorumlanır.
+
 ## 7. Yalnız yakın görünüm / büyüteç
 
 Lup modunda gerçekçi görünüm uzak ölçekte bilgi katmaz ve GPU'yu boşa harcar. Önerilen kullanım (Dokuma

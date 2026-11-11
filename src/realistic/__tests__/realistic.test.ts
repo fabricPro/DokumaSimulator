@@ -160,11 +160,15 @@ describe('kırık dimi ve adaptör', () => {
     const spec = physicalExample(6, 10);
     const inp = fabricInputFromSpec(spec);
     expect(inp.weave.warps).toBe(spec.weave[0].length);
-    expect(inp.weave.data[0]).toBe(spec.weave[0][0] ? 1 : 0);
-    expect(inp.weave.data[inp.weave.warps * 3 + 5]).toBe(spec.weave[3][5] ? 1 : 0);
+    // Gerçekçi tel i = klasik tel g = i + 1 (aynı mm konumu): örgü ve diziler bir tel kaydırılmış
+    const W = spec.weave[0].length;
+    const H = spec.weave.length;
+    const rot = <T,>(a: T[]) => a.map((_, i) => a[(i + 1) % a.length]);
+    expect(inp.weave.data[0]).toBe(spec.weave[1 % H][1 % W] ? 1 : 0);
+    expect(inp.weave.data[inp.weave.warps * 3 + 5]).toBe(spec.weave[4 % H][6 % W] ? 1 : 0);
     expect(inp.yarnTypes).toHaveLength(spec.warpSlots.length + spec.weftSlots.length);
-    expect(inp.warp.map((t) => t.yarnType)).toEqual(spec.warpSequence);
-    expect(inp.weft.map((t) => t.yarnType)).toEqual(spec.weftSequence.map((i) => spec.warpSlots.length + i));
+    expect(inp.warp.map((t) => t.yarnType)).toEqual(rot(spec.warpSequence));
+    expect(inp.weft.map((t) => t.yarnType)).toEqual(rot(spec.weftSequence).map((i) => spec.warpSlots.length + i));
     expect(inp.density.warpPerCm).toBe(spec.warpDensityLoom);
     expect(() => packFabric(inp)).not.toThrow();
   });

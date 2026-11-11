@@ -23,6 +23,8 @@ import { physicalExample } from '../../presets/physicalExample';
 import { diameterMm as yarnDiameterMm, toTex as yarnToTex } from '../yarn';
 import { pitchMm } from '../scale';
 import { packingSnapshots } from './packingSnapshots';
+import { reedFixSnapshots } from './reedFixSnapshots';
+import { threadingSnapshots } from './threadingSnapshots';
 
 declare global {
   interface Window {
@@ -1606,6 +1608,22 @@ async function scaleSwitchSnapshots(say: (t: string) => void) {
 
 async function run() {
   const tagParam = new URLSearchParams(location.search).get('phase') ?? '1';
+  if (tagParam === 'reed-fix') {
+    SAVE_TAG = 'reed-fix';
+    const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');
+    window.__snapshotsReport = await reedFixSnapshots(say);
+    window.__snapshotsDone = true;
+    say('Bitti.');
+    return;
+  }
+  if (tagParam === 'threading') {
+    SAVE_TAG = 'threading';
+    const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');
+    window.__snapshotsReport = await threadingSnapshots(say);
+    window.__snapshotsDone = true;
+    say('Bitti.');
+    return;
+  }
   if (tagParam === 'packing') {
     SAVE_TAG = 'packing';
     const say = (t: string) => (document.getElementById('log')!.textContent += t + '\n');

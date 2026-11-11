@@ -1,0 +1,35 @@
+{
+  "threading": [
+    1,
+    3,
+    5,
+    7,
+    2,
+    4,
+    6,
+    8
+  ],
+  "frames": 8,
+  "warpSequence": [
+    0,
+    0,
+    1,
+    1
+  ],
+  "warpRepeat": 8,
+  "reed": {
+    "reedNumber": 12,
+    "dentingReport": [
+      2,
+      1,
+      0
+    ]
+  },
+  "maxPixelDiffVsStraightEquivalent": {
+    "klasik-Lup": 0,
+    "gercekci-Lup": 0,
+    "klasik-Göz 40 cm": 0,
+    "gercekci-Göz 40 cm": 0
+  },
+  "note": "Düz tahar + eşdeğer örgü matrisi ile en büyük piksel farkı (0 = birebir aynı)."
+}

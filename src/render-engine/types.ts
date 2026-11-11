@@ -64,6 +64,15 @@ export interface FabricSpec {
   relax?: { c?: number; rho?: number; rhoWeft?: number };
   /** Atkı sıklık raporu: atkı başına tezgah adım çarpanı (ör. [1,1,1,3]); boşsa eşit adım. */
   weftDensityReport?: number[];
+  /**
+   * Tahar: tel başına çerçeve (0 tabanlı), kendi rapor uzunluğu. Armür ile birlikte verilirse `weave` bunlardan
+   * türetilir (render-engine/threading.ts effectiveWeave); yoksa `weave` düz tahar olarak yorumlanır.
+   */
+  threading?: number[];
+  /** Armür: [atkı][çerçeve], satır 0 = ilk (alt) atkı. */
+  liftplan?: boolean[][];
+  /** Çerçeve sayısı (tahar ızgarası). */
+  frames?: number;
   /** İplik tanımları (id ile slotlardan referans; .atki.json demoları). Yoksa eski slot modeli. */
   yarns?: IplikTanimi[];
 }

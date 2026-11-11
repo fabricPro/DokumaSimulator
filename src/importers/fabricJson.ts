@@ -4,6 +4,7 @@
  */
 import { MAX_SLOTS, SLOT_NAMES, normalizeReedSpec, normalizeSystem, parseDenting, parseWeftReport, type FabricSpec, type YarnSlot, type YarnSystem } from '../render-engine';
 import { colorsToSlots } from './slots';
+import { effectiveWeave } from '../render-engine/threading';
 
 export interface ParsedFabric {
   spec: FabricSpec;
@@ -48,6 +49,7 @@ function checkSlots(v: unknown, name: string): YarnSlot[] {
       twist: s.twist === 'Z' ? 'Z' : 'S',
     };
     if (s.yarnDensity !== undefined) slot.yarnDensity = posNum(s.yarnDensity, `${name}[${i}].yarnDensity`);
+    if (typeof s.yarnId === 'string') slot.yarnId = s.yarnId;
     return slot;
   });
 }
@@ -96,7 +98,30 @@ export function validateSpecV2(raw: any): FabricSpec {
         }
       : {}),
     ...checkWeftReport(raw.weftDensityReport),
+    ...(Array.isArray(raw.yarns) ? { yarns: raw.yarns } : {}),
+    ...checkThreading(raw, weave),
   };
+}
+
+/**
+ * Tahar + armür (isteğe bağlı): ikisi birlikte verilmeli; weave bunlardan türetilmiş olmalı (değilse türetilen
+ * kullanılır — tahar / armür kaynak sayılır). Eski dosyalarda alan yok → düz tahar.
+ */
+function checkThreading(raw: any, weave: boolean[][]): Partial<FabricSpec> {
+  if (raw.threading === undefined && raw.liftplan === undefined) return {};
+  if (!Array.isArray(raw.threading) || raw.threading.length === 0) throw new Error('threading boş olmayan dizi olmalı.');
+  if (!Array.isArray(raw.liftplan) || raw.liftplan.length === 0) throw new Error('threading ile birlikte liftplan (armür) gerekli.');
+  const threading = raw.threading.map((f: unknown, i: number) => {
+    if (!Number.isInteger(f) || (f as number) < 0 || (f as number) > 63) throw new Error(`threading[${i}] 0–63 arası tamsayı olmalı.`);
+    return f as number;
+  });
+  const F = Math.max(Math.max(...threading) + 1, Number.isInteger(raw.frames) ? raw.frames : 0);
+  const liftplan = raw.liftplan.map((row: unknown, j: number) => {
+    if (!Array.isArray(row)) throw new Error(`liftplan satırı ${j} dizi olmalı.`);
+    return Array.from({ length: F }, (_, f) => row[f] === true || row[f] === 1);
+  });
+  void weave;
+  return { threading, liftplan, frames: F, weave: effectiveWeave(threading, liftplan) };
 }
 
 /** Atkı sıklık raporu: yoksa eşit adım. */

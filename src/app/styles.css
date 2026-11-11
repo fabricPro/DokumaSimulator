@@ -259,3 +259,12 @@ button.link:hover { color: var(--text); }
   opacity: 0.65;
   font-weight: normal;
 }
+
+/* Tahar ızgarası */
+.threading-wrap { display: flex; gap: 6px; align-items: flex-start; }
+.frame-labels { display: grid; font-size: 10px; line-height: 1; }
+.frame-label { display: flex; align-items: center; white-space: nowrap; opacity: 0.85; }
+.frame-label.multi { color: #f0b04a; font-weight: 600; }
+.row.assign { align-items: center; gap: 4px; flex-wrap: wrap; }
+.thread-strip { margin-top: 6px; }
+.chip.small { min-width: 18px; height: 18px; font-size: 10px; border-width: 1px; cursor: pointer; }

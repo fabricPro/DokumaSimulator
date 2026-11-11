@@ -3,6 +3,7 @@
  * React/DOM/global uygulama state'i bağımlılığı yoktur; bu klasör olduğu gibi başka projeye kopyalanabilir.
  */
 export * from './types';
+export * from './threading';
 export { yarnDiameterMm, spacingMm, yarnGeometry, DEFAULT_FIBER_DENSITY, toTex as toTexV1 } from './geometry';
 export type { YarnGeometry } from './geometry';
 export * from './physical';

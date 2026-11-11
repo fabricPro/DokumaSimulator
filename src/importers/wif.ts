@@ -9,6 +9,14 @@ export interface WifResult {
   weave: boolean[][];
   warpColors?: string[];
   weftColors?: string[];
+  /**
+   * Tahar (tel → çerçeve, 0 tabanlı) ve armür ([atkı][çerçeve], kalkan = true; Rising Shed = false ise ters).
+   * effectiveWeave(threading, liftplan) = weave. Bir tel birden çok çerçevede ise verilmez (uyarı; matris kullanılır).
+   * Çerçevesiz tel için hiç kalkmayan ek bir çerçeve eklenir.
+   */
+  threading?: number[];
+  liftplan?: boolean[][];
+  frames?: number;
   warnings: string[];
 }
 
@@ -120,8 +128,34 @@ export function parseWif(text: string): WifResult {
     weave.push(row);
   }
 
-  // Renkler
+  // Tahar + armür (tel bazlı model): her tel tek çerçevedeyse doğrudan eşlenir
   const result: WifResult = { weave, warnings };
+  const multi = [...threading.values()].some((l) => l.length > 1);
+  if (multi) {
+    warnings.push('WIF: bazı teller birden çok çerçevede; tahar alınmadı, yalnız örgü matrisi kullanılıyor.');
+  } else {
+    let shafts = parseInt(s.get('weaving')?.get('shafts') ?? '0', 10) || 0;
+    for (const l of threading.values()) for (const sh of l) shafts = Math.max(shafts, sh);
+    const empty = Array.from({ length: ends }, (_, k) => (threading.get(k + 1) ?? []).length === 0).some(Boolean);
+    const F = shafts + (empty ? 1 : 0);
+    const th = Array.from({ length: ends }, (_, k) => {
+      const l = threading.get(k + 1) ?? [];
+      return l.length ? l[0] - 1 : shafts; // çerçevesiz tel → hiç kalkmayan ek çerçeve
+    });
+    const lp: boolean[][] = [];
+    for (let p = 1; p <= pickCount; p++) {
+      const lifted = new Set(picks.get(p) ?? []);
+      lp.push(Array.from({ length: F }, (_, f) => {
+        const up = f < shafts && lifted.has(f + 1);
+        return rising ? up : !up;
+      }));
+    }
+    result.threading = th;
+    result.liftplan = lp;
+    result.frames = F;
+  }
+
+  // Renkler
   const table = s.get('color table');
   if (table && table.size > 0) {
     const rangeRaw = intListAllowZero(s.get('color palette')?.get('range'));

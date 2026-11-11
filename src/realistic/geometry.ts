@@ -34,6 +34,8 @@ import { tileFor } from './tile';
  * v2 aday yarı penceresi: en geniş yarı kesit (+ iplik boyunca kalınlık %7, düzensizlik) en küçük merkez aralığının
  * kaç katı. 1 → krepaj aralığının iki ucu; s → k+1−s .. k+s. Üst sınır 8 (shader döngüsü).
  */
+const clampAbs = (v: number, m: number) => Math.max(-m, Math.min(m, v));
+
 export function layoutSpan(l: InputAxisLayout, thickness = 0, position = 0): number {
   const reach = l.maxHalfWidth * (1 + thickness) * 1.07 * 1.15 + 2 * position * l.pitch;
   return Math.max(1, Math.min(8, 1 + Math.floor(reach / l.minGap)));
@@ -497,8 +499,15 @@ export function geometryParamsFromInput(
   const beta = input.crimpShare ?? V2_CRIMP_SHARE;
   return {
     ...base,
-    warpCenter: (i) => (i + 0.5) * pw + lw.offset[pmod(i, Pw)] + positionOffset(0, pmod(i, Pw), pw, ir),
-    weftCenter: (j) => (j + 0.5) * pf + lf.offset[pmod(j, Pf)] + positionOffset(1, pmod(j, Pf), pf, ir),
+    // Konum düzensizliği tel serbestliğiyle sınırlı (pack.ts threadTable ile aynı): tel dişinden çıkmaz
+    warpCenter: (i) => {
+      const k = pmod(i, Pw);
+      return (i + 0.5) * pw + lw.offset[k] + clampAbs(positionOffset(0, k, pw, ir), lw.freedom[k]);
+    },
+    weftCenter: (j) => {
+      const k = pmod(j, Pf);
+      return (j + 0.5) * pf + lf.offset[k] + clampAbs(positionOffset(1, k, pf, ir), lf.freedom[k]);
+    },
     crimpShare: beta,
     warpFlat: (i) => lw.aspect[pmod(i, Pw)],
     weftFlat: (j) => lf.aspect[pmod(j, Pf)],

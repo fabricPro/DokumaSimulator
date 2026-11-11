@@ -1,0 +1,75 @@
+{
+  "note": "Lup 180 px/mm, Göz / Uzak 25 px/mm; aynı pencere (x0 0.05 mm, y0 1 mm). warpPixelsInEmptyDent: tezgah lupta boş diş sınırları içine düşen gerçekçi çözgü pikseli (0 olmalı).",
+  "rows": [
+    {
+      "case": "3-0-0",
+      "panel": "loom",
+      "warpPixels": 32410,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "3-0-0",
+      "panel": "finished",
+      "warpPixels": 0,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "4-0",
+      "panel": "loom",
+      "warpPixels": 61497,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "4-0",
+      "panel": "finished",
+      "warpPixels": 0,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "3-3-0",
+      "panel": "loom",
+      "warpPixels": 89295,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "3-3-0",
+      "panel": "finished",
+      "warpPixels": 0,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "2-2-3-0",
+      "panel": "loom",
+      "warpPixels": 77280,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "2-2-3-0",
+      "panel": "finished",
+      "warpPixels": 0,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "tarak-yok",
+      "panel": "loom",
+      "warpPixels": 0,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    },
+    {
+      "case": "tarak-yok",
+      "panel": "finished",
+      "warpPixels": 0,
+      "warpPixelsInEmptyDent": 0,
+      "pct": 0
+    }
+  ]
+}

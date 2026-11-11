@@ -4,12 +4,14 @@ import { WEAVE_PRESETS } from '../presets/weaves';
 interface Props {
   weave: boolean[][];
   onChange: (w: boolean[][]) => void;
+  /** 'armur': tahar açıkken atkı × çerçeve (sütun = çerçeve). */
+  mode?: 'weave' | 'armur';
 }
 
 const MAX_DIM = 200;
 
 /** Örgü ızgarası. Görselde 0. atkı en altta; siyah = çözgü üstte. */
-export function WeaveEditor({ weave, onChange }: Props) {
+export function WeaveEditor({ weave, onChange, mode = 'weave' }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rows = weave.length;
   const cols = weave[0].length;
@@ -94,7 +96,7 @@ export function WeaveEditor({ weave, onChange }: Props) {
 
   return (
     <section className="panel">
-      <h3>Örgü</h3>
+      <h3>{mode === 'armur' ? 'Armür (atkı × çerçeve)' : 'Örgü'}</h3>
       <div className="row">
         <select
           value=""
@@ -113,7 +115,7 @@ export function WeaveEditor({ weave, onChange }: Props) {
       </div>
       <div className="row">
         <label>
-          Genişlik
+          {mode === 'armur' ? 'Çerçeve' : 'Genişlik'}
           <input type="number" min={1} max={MAX_DIM} value={cols} onChange={(e) => resize(+e.target.value, rows)} />
         </label>
         <label>
@@ -127,7 +129,11 @@ export function WeaveEditor({ weave, onChange }: Props) {
       <div className="weave-grid">
         <canvas ref={canvasRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} />
       </div>
-      <p className="hint">Koyu = çözgü üstte · 0. atkı en altta · tıkla/sürükle</p>
+      <p className="hint">
+        {mode === 'armur'
+          ? 'Koyu = çerçeve kalkar (o çerçevedeki çözgüler üstte) · sütun = çerçeve F1… · 0. atkı en altta'
+          : 'Koyu = çözgü üstte · 0. atkı en altta · tıkla/sürükle'}
+      </p>
     </section>
   );
 }

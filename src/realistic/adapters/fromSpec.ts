@@ -51,8 +51,10 @@ export function fabricInputFromSpec(
 ): FabricInput {
   const wefts = spec.weave.length;
   const warps = spec.weave[0].length;
+  // Gerçekçi tel i = klasik tel g = i + 1 (konum tablosu positionsFromSpec ile aynı): örgü sütun / satırı ve
+  // diziler bir tel kaydırılır → aynı mm'deki tel klasik render'la aynı bağlantı, renk ve iplik tipini alır.
   const data = new Uint8Array(warps * wefts);
-  spec.weave.forEach((row, r) => row.forEach((v, c) => (data[r * warps + c] = v ? 1 : 0)));
+  for (let r = 0; r < wefts; r++) for (let c = 0; c < warps; c++) data[r * warps + c] = spec.weave[(r + 1) % wefts][(c + 1) % warps] ? 1 : 0;
   // Slot bir iplik tanımına bağlıysa (.atki.json demoları) tip, kat, parlaklık, tüylülük ve büküm ondan
   const linked = (s: FabricSpec['warpSlots'][number]) => (s.yarnId ? spec.yarns?.find((y) => y.id === s.yarnId) : undefined);
   const toType = (s: FabricSpec['warpSlots'][number]): YarnType => {
@@ -76,8 +78,8 @@ export function fabricInputFromSpec(
   const seq = (list: number[]) => (list.length ? list : [0]);
   return {
     weave: { warps, wefts, data },
-    warp: seq(spec.warpSequence).map((i) => ({ color: hex6(spec.warpSlots[i].color), yarnType: i })),
-    weft: seq(spec.weftSequence).map((i) => ({ color: hex6(spec.weftSlots[i].color), yarnType: nW + i })),
+    warp: rot1(seq(spec.warpSequence)).map((i) => ({ color: hex6(spec.warpSlots[i].color), yarnType: i })),
+    weft: rot1(seq(spec.weftSequence)).map((i) => ({ color: hex6(spec.weftSlots[i].color), yarnType: nW + i })),
     yarnTypes,
     ...placement(spec, opts.densities ?? 'loom', opts.positions ?? true),
     shrink: { widthPct: spec.weftShrinkPct, lengthPct: spec.warpShrinkPct },
@@ -86,6 +88,9 @@ export function fabricInputFromSpec(
 
 /** Konum tablosu periyot üst sınırı (iplik; döşeme ve GPU tablo genişliği). */
 export const MAX_POSITION_PERIOD = 2048;
+
+/** Diziyi bir eleman sola döndürür: sonuç[i] = dizi[i + 1] (gerçekçi tel i = klasik tel i + 1). */
+const rot1 = <T,>(a: T[]): T[] => a.map((_, i) => a[(i + 1) % a.length]);
 
 function placement(spec: FabricSpec, kind: 'loom' | 'finished', usePositions: boolean): Pick<FabricInput, 'density' | 'positions'> {
   if (!usePositions) return { density: densityOf(spec, kind) };

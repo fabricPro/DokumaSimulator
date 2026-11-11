@@ -110,6 +110,8 @@ export function threadTable(
   irregularityMul = 1,
   spreadMul = 1,
   packing?: PackingOverrides,
+  /** Yol sapması çarpanı (shader uAlongMul = Tuning.irregularity). */
+  wobbleMul = irregularityMul,
 ): { width: number; data: Float32Array; layouts: [InputAxisLayout, InputAxisLayout] } {
   const ir = resolveIrregularity(input, irregularityMul);
   const width = Math.max(period[0], period[1]);
@@ -129,8 +131,16 @@ export function threadTable(
       const t = (ch: number) => threadRand(ax, i, ch, ir.seed);
       const row = (k: number, v: [number, number, number, number]) => data.set(v, ((ax * 4 + k) * width + i) * 4);
       const T = (y.twistPerM ?? DEFAULT_TWIST_PER_M) / 1000;
-      row(0, [0.5 * d * (1 + ir.thickness * t(0)), lay.offset[i] + ir.position * pitch[ax] * t(1), lay.aspect[i], d]);
-      row(1, [Math.PI * t(5), Math.PI * t(6), t(7), t(8)]);
+      // Konum düzensizliği ve yol sapması tel serbestliğiyle (duvar / komşu payı) sınırlı: tel dişinden çıkmaz
+      const fr = lay.freedom[i];
+      const pos = Math.max(-fr, Math.min(fr, ir.position * pitch[ax] * t(1)));
+      row(0, [0.5 * d * (1 + ir.thickness * t(0)), lay.offset[i] + pos, lay.aspect[i], d]);
+      // Yol sapması (shader wobV2): çözgü A·(t₇ + t₈), atkı 1.2·A·t₇, A = 0.0433·çarpan·aralık; kalan paya sığacak
+      // şekilde t₇ / t₈ ölçeklenir
+      const wobMax = (ax === 0 ? 2 : 1.2) * 0.0433 * Math.max(0, wobbleMul) * pitch[ax];
+      const room = Math.max(0, fr - Math.abs(pos));
+      const ws = wobMax > room && wobMax > 0 ? room / wobMax : 1;
+      row(1, [Math.PI * t(5), Math.PI * t(6), t(7) * ws, t(8) * ws]);
       row(2, [Math.PI * t(9), t(10), t(11), y.structure === 'textured' ? TEXTURED_EDGE_SOFT : 0]);
       row(3, [y.twist === 'S' ? -T : T, Math.max(1, y.plies ?? 2), STRUCTURE_CODE[y.structure ?? 'spun'], 0]);
     }

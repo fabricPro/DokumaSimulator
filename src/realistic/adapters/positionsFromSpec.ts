@@ -4,12 +4,12 @@
  * tablolardan beslenir: iki ayrı model kalmaz.
  *
  *  - Merkezler: AxisPositions.loom ya da .finished üreticisinden bir periyot (P iplik; P = lcm(örgü, dizi, tarak)).
- *  - Boş diş sınırı (yalnız çözgü, tarak varsa): komşu çözgü bir ya da daha fazla boş dişin öbür yanındaysa
- *    ipliğin o yana yayılması kendi dişinin kenarında biter (tezgahta). Mamulde sınır, o aralığın çekme oranıyla
- *    ölçeklenir (aralık g_mamul / g_tezgah).
+ *  - Tarak duvarları (yalnız çözgü, tarak varsa; render-engine/physical/warpLayout.ts): her tel kendi dişinin
+ *    sınırları içinde kalır (limitL/R); mamulde duvar payı yandaki aralığın çekme oranıyla ölçeklenir.
  */
 import type { FabricSpec } from '../../render-engine/types';
-import { buildFabricPositions, type AxisPositions, type FabricPositions } from '../../render-engine/physical/shrinkDistribution';
+import { buildFabricPositions, type FabricPositions } from '../../render-engine/physical/shrinkDistribution';
+import { threadLayout, type AxisThreadLayout } from '../../render-engine/physical/warpLayout';
 import { slotOf, slotTable } from '../../render-engine/physical/yarns';
 import { iplikToYarnType } from '../../adapters/iplik';
 import { packAxis, packedOpenPct, packKind, resolvePacking, type AxisPack, type PackingOverrides, type PackKind } from '../packing';
@@ -19,16 +19,6 @@ export interface SpecAxisTable extends PeriodicCenters {
   /** Yuvarlak çap (mm) ve paketleme tipi, iplik başına (metrikler için). */
   diameters: Float64Array;
   kinds: PackKind[];
-}
-
-function periodOf(ax: AxisPositions, which: 'loom' | 'finished'): { centers: Float64Array; periodMm: number } {
-  const gen = ax[which];
-  const P = ax.period;
-  // Gerçekçi modda iplik i, klasik render'ın g = i + 1 ipliğinin mm konumundadır (eşit aralıkta (i + 0.5)·p):
-  // tablo g = 1 .. P'den alınır.
-  const c = gen.centers(1, P + 1);
-  // Periyot uzunluğu: c[P] − c[0] (periyodik üreticide tam periyot genişliği)
-  return { centers: c.subarray(0, P), periodMm: c[P] - c[0] };
 }
 
 function slotKinds(spec: FabricSpec, slots: FabricSpec['warpSlots']): PackKind[] {
@@ -45,48 +35,29 @@ export function specAxisTables(
   which: 'loom' | 'finished',
   positions: FabricPositions = buildFabricPositions(spec),
 ): { warp: SpecAxisTable; weft: SpecAxisTable } {
-  const mk = (ax: AxisPositions, slots: FabricSpec['warpSlots'], seq: number[], isWarp: boolean): SpecAxisTable => {
-    const { centers, periodMm } = periodOf(ax, which);
-    const P = ax.period;
+  // Tek kaynak (warpLayout.ts). Gerçekçi tel i = klasik tel g = i + 1 (gerçekçi eşit aralık (i + 0.5)·p =
+  // klasik (g − 0.5)·p); adaptör (fromSpec) örgü / dizileri de aynı bir tel kaydırır → aynı tel aynı yerde ve aynı
+  // bağlantıyla çizilir.
+  const lay = threadLayout(spec, which, positions, 1);
+  const mk = (l: AxisThreadLayout, slots: FabricSpec['warpSlots'], seq: number[]): SpecAxisTable => {
+    const P = l.period;
     const t = slotTable(slots);
     const kinds = slotKinds(spec, slots);
     const diameters = new Float64Array(P);
     const kk: PackKind[] = [];
     for (let k = 0; k < P; k++) {
-      const s = slotOf(seq, k + 1, slots.length);
+      const s = slotOf(seq, l.first + k, slots.length);
       diameters[k] = t.diameter[s];
       kk.push(kinds[s]);
     }
-    const out: SpecAxisTable = { centersMm: Float32Array.from(centers), periodMm, diameters, kinds: kk };
-    const reed = isWarp ? positions.reed : undefined;
-    if (reed) {
-      const loom = ax.loom.centers(0, P + 2); // g = 0 .. P + 1
-      const fin = which === 'finished' ? ax.finished.centers(0, P + 2) : loom;
-      const limL = new Float32Array(P).fill(Infinity);
-      const limR = new Float32Array(P).fill(Infinity);
-      for (let k = 0; k < P; k++) {
-        const g = k + 1;
-        const dent = reed.dentOfWarp(g);
-        const geo = reed.dentAt(dent);
-        const a = g; // loom / fin dizisindeki yeri
-        if (reed.dentOfWarp(g + 1) - dent >= 2) {
-          const scale = (fin[a + 1] - fin[a]) / (loom[a + 1] - loom[a]);
-          limR[k] = Math.max(0, (geo.right - loom[a]) * scale);
-        }
-        if (dent - reed.dentOfWarp(g - 1) >= 2) {
-          const scale = (fin[a] - fin[a - 1]) / (loom[a] - loom[a - 1]);
-          limL[k] = Math.max(0, (loom[a] - geo.left) * scale);
-        }
-      }
-      out.limitLMm = limL;
-      out.limitRMm = limR;
+    const out: SpecAxisTable = { centersMm: Float32Array.from(l.centers), periodMm: l.periodMm, diameters, kinds: kk };
+    if (l.wallL && l.wallR) {
+      out.limitLMm = Float32Array.from(l.wallL);
+      out.limitRMm = Float32Array.from(l.wallR);
     }
     return out;
   };
-  return {
-    warp: mk(positions.warp, spec.warpSlots, spec.warpSequence, true),
-    weft: mk(positions.weft, spec.weftSlots, spec.weftSequence, false),
-  };
+  return { warp: mk(lay.warp, spec.warpSlots, spec.warpSequence), weft: mk(lay.weft, spec.weftSlots, spec.weftSequence) };
 }
 
 export function packSpecAxis(t: SpecAxisTable, packing?: PackingOverrides): AxisPack {

@@ -24,6 +24,11 @@ export interface InputAxisLayout {
   maxHalfWidth: number;
   /** Açık izdüşüm oranı (0..1). */
   clearFraction: number;
+  /**
+   * Tel başına serbestlik (mm): kesit kenarından hücre / tarak duvarına kalan pay. Konum düzensizliği ve iplik
+   * boyunca yol sapması bununla sınırlanır → hiçbir tel dişinin dışına çıkmaz, grup içinde komşusunun yerine geçmez.
+   */
+  freedom: Float64Array;
 }
 
 /** Konum tablosunun periyodu (iplik); yoksa 1. */
@@ -64,13 +69,17 @@ export function axisLayout(input: FabricInput, ax: 0 | 1, period: number, packin
     spread,
   );
   const offset = new Float64Array(period);
+  const freedom = new Float64Array(period);
   let minGap = Infinity;
   let maxHalfWidth = 0;
   for (let k = 0; k < period; k++) {
     offset[k] = packed.centers[k] - (k + 0.5) * pitch;
+    const lo = centers[k] - packed.cellL[k];
+    const hi = centers[k] + packed.cellR[k];
+    freedom[k] = Math.max(0, Math.min(packed.centers[k] - lo, hi - packed.centers[k]) - packed.width[k] / 2);
     const next = k + 1 < period ? packed.centers[k + 1] : packed.centers[0] + period * pitch;
     minGap = Math.min(minGap, next - packed.centers[k]);
     maxHalfWidth = Math.max(maxHalfWidth, packed.width[k] / 2);
   }
-  return { offset, aspect: packed.aspect, diameter, pitch, minGap: Math.max(1e-4, minGap), maxHalfWidth, clearFraction: packed.clearFraction };
+  return { offset, aspect: packed.aspect, diameter, pitch, minGap: Math.max(1e-4, minGap), maxHalfWidth, clearFraction: packed.clearFraction, freedom };
 }
